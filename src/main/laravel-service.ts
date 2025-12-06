@@ -84,6 +84,13 @@ export class LaravelService extends LocalMain.LightningService {
       }
     }, 100);
 
+    // Define bins using Object.defineProperty
+    // Lightning Services require this property - return empty since we don't run binaries
+    Object.defineProperty(this, 'bins', {
+      get: () => ({}), // No binaries - we only provide nginx config
+      configurable: true,
+    });
+
     // Define requiredPorts using Object.defineProperty
     // TypeScript workaround - regular property definitions don't work
     // The service doesn't need its own port, but Local requires this
