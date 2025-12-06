@@ -32,6 +32,9 @@ import type {
   GetEnvRequest,
   UpdateEnvRequest,
   EnvVariable,
+  GetFailedJobsRequest,
+  QueueJobRequest,
+  FailedJob,
 } from '../common/types';
 
 /**
@@ -462,7 +465,194 @@ function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
     }
   });
 
+  // Handler: Get failed jobs
+  ipcMain.handle(IPC_CHANNELS.GET_FAILED_JOBS, async (_event, data: GetFailedJobsRequest) => {
+    try {
+      const site = siteData.getSite(data.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      // Check site is running
+      const status = siteProcessManager.getSiteStatus(site);
+      if (status !== 'running') {
+        return { success: false, error: 'Site must be running to view queue' };
+      }
+
+      const sitePath = site.path.startsWith('~')
+        ? site.path.replace('~', os.homedir())
+        : site.path;
+      const appPath = path.join(sitePath, 'app');
+
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+
+      const { stdout } = await execAsync('php artisan queue:failed', {
+        cwd: appPath,
+        timeout: 30000,
+      });
+
+      // Parse the table output from queue:failed
+      const jobs = parseQueueFailedOutput(stdout);
+
+      return { success: true, jobs };
+    } catch (error: any) {
+      // If no failed jobs table exists, return empty array
+      if (error.message?.includes('No failed jobs') || error.stdout?.includes('No failed jobs')) {
+        return { success: true, jobs: [] };
+      }
+      localLogger.error('[LocalLaravel] GET_FAILED_JOBS error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Retry a failed job
+  ipcMain.handle(IPC_CHANNELS.RETRY_JOB, async (_event, data: QueueJobRequest) => {
+    try {
+      const site = siteData.getSite(data.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      const status = siteProcessManager.getSiteStatus(site);
+      if (status !== 'running') {
+        return { success: false, error: 'Site must be running' };
+      }
+
+      const sitePath = site.path.startsWith('~')
+        ? site.path.replace('~', os.homedir())
+        : site.path;
+      const appPath = path.join(sitePath, 'app');
+
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+
+      // Handle "all" or specific job ID
+      const jobArg = data.jobId === 'all' ? 'all' : data.jobId;
+      await execAsync(`php artisan queue:retry ${jobArg}`, {
+        cwd: appPath,
+        timeout: 30000,
+      });
+
+      localLogger.info(`[LocalLaravel] Retried job(s): ${jobArg}`);
+      return { success: true, message: `Job ${jobArg} pushed back to queue` };
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] RETRY_JOB error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Forget (delete) a failed job
+  ipcMain.handle(IPC_CHANNELS.FORGET_JOB, async (_event, data: QueueJobRequest) => {
+    try {
+      const site = siteData.getSite(data.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      const status = siteProcessManager.getSiteStatus(site);
+      if (status !== 'running') {
+        return { success: false, error: 'Site must be running' };
+      }
+
+      const sitePath = site.path.startsWith('~')
+        ? site.path.replace('~', os.homedir())
+        : site.path;
+      const appPath = path.join(sitePath, 'app');
+
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+
+      await execAsync(`php artisan queue:forget ${data.jobId}`, {
+        cwd: appPath,
+        timeout: 30000,
+      });
+
+      localLogger.info(`[LocalLaravel] Deleted failed job: ${data.jobId}`);
+      return { success: true, message: 'Job deleted' };
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] FORGET_JOB error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Flush all failed jobs
+  ipcMain.handle(IPC_CHANNELS.FLUSH_JOBS, async (_event, data: { siteId: string }) => {
+    try {
+      const site = siteData.getSite(data.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      const status = siteProcessManager.getSiteStatus(site);
+      if (status !== 'running') {
+        return { success: false, error: 'Site must be running' };
+      }
+
+      const sitePath = site.path.startsWith('~')
+        ? site.path.replace('~', os.homedir())
+        : site.path;
+      const appPath = path.join(sitePath, 'app');
+
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+
+      await execAsync('php artisan queue:flush', {
+        cwd: appPath,
+        timeout: 30000,
+      });
+
+      localLogger.info(`[LocalLaravel] Flushed all failed jobs for ${site.name}`);
+      return { success: true, message: 'All failed jobs deleted' };
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] FLUSH_JOBS error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   localLogger.info('[LocalLaravel] IPC handlers registered');
+}
+
+/**
+ * Parse the output of `php artisan queue:failed` command.
+ *
+ * Output format:
+ * +----+------------+---------+---------------------+
+ * | ID | Connection | Queue   | Failed At           |
+ * +----+------------+---------+---------------------+
+ * | 5  | database   | default | 2024-01-15 10:23:45 |
+ * +----+------------+---------+---------------------+
+ */
+function parseQueueFailedOutput(output: string): FailedJob[] {
+  const jobs: FailedJob[] = [];
+  const lines = output.split('\n');
+
+  for (const line of lines) {
+    // Skip separator lines and header line
+    if (line.startsWith('+') || line.includes('| ID |') || !line.trim()) {
+      continue;
+    }
+
+    // Parse data rows: | ID | Connection | Queue | Failed At |
+    if (line.startsWith('|')) {
+      const parts = line.split('|').map(p => p.trim()).filter(p => p);
+
+      if (parts.length >= 4) {
+        jobs.push({
+          id: parts[0],
+          connection: parts[1],
+          queue: parts[2],
+          failedAt: parts[3],
+        });
+      }
+    }
+  }
+
+  return jobs;
 }
 
 /**

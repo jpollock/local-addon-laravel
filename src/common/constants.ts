@@ -34,6 +34,12 @@ export const IPC_CHANNELS = {
 
   // Log viewer
   GET_LARAVEL_LOGS: 'local-laravel:get-logs',
+
+  // Queue operations
+  GET_FAILED_JOBS: 'local-laravel:queue-failed',
+  RETRY_JOB: 'local-laravel:queue-retry',
+  FORGET_JOB: 'local-laravel:queue-forget',
+  FLUSH_JOBS: 'local-laravel:queue-flush',
 } as const;
 
 /**

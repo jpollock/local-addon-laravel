@@ -11,7 +11,7 @@
 
 import * as React from 'react';
 import { IPC_CHANNELS, QUICK_ARTISAN_COMMANDS } from '../../common/constants';
-import type { LaravelPanelProps, ArtisanResult } from '../../common/types';
+import type { LaravelPanelProps, ArtisanResult, FailedJob } from '../../common/types';
 
 /**
  * CSS to hide WordPress-specific UI elements for Laravel sites.
@@ -90,6 +90,11 @@ interface State {
   isLoadingEnv: boolean;
   isSavingEnv: boolean;
   envEditMode: 'table' | 'raw';
+  // Queue monitor
+  showQueueMonitor: boolean;
+  failedJobs: FailedJob[];
+  isLoadingJobs: boolean;
+  processingJobId: string | null;
 }
 
 /** Style element ID for Laravel CSS injection */
@@ -140,6 +145,11 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
       isLoadingEnv: false,
       isSavingEnv: false,
       envEditMode: 'table',
+      // Queue monitor
+      showQueueMonitor: false,
+      failedJobs: [],
+      isLoadingJobs: false,
+      processingJobId: null,
     };
 
     this.ipcRenderer = getIpcRenderer();
@@ -619,6 +629,185 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
     }));
   };
 
+  /**
+   * Toggle queue monitor visibility.
+   */
+  handleToggleQueueMonitor = async (): Promise<void> => {
+    const { showQueueMonitor } = this.state;
+
+    if (!showQueueMonitor) {
+      // Opening monitor, fetch failed jobs
+      await this.fetchFailedJobs();
+    }
+
+    this.setState({ showQueueMonitor: !showQueueMonitor });
+  };
+
+  /**
+   * Fetch failed jobs from the queue.
+   */
+  fetchFailedJobs = async (): Promise<void> => {
+    if (!this.ipcRenderer) return;
+
+    this.setState({ isLoadingJobs: true });
+
+    try {
+      const response = await this.ipcRenderer.invoke(IPC_CHANNELS.GET_FAILED_JOBS, {
+        siteId: this.props.site.id,
+      });
+
+      if (response.success) {
+        this.setState({ failedJobs: response.jobs || [], isLoadingJobs: false });
+      } else {
+        this.setState({
+          failedJobs: [],
+          isLoadingJobs: false,
+          lastCommandOutput: response.error || 'Failed to load queue',
+          lastCommandSuccess: false,
+          showOutput: true,
+        });
+      }
+    } catch (error: any) {
+      this.setState({
+        failedJobs: [],
+        isLoadingJobs: false,
+        lastCommandOutput: error.message || 'Failed to load queue',
+        lastCommandSuccess: false,
+        showOutput: true,
+      });
+    }
+  };
+
+  /**
+   * Retry a failed job.
+   */
+  handleRetryJob = async (jobId: string): Promise<void> => {
+    if (!this.ipcRenderer) return;
+
+    this.setState({ processingJobId: jobId });
+
+    try {
+      const response = await this.ipcRenderer.invoke(IPC_CHANNELS.RETRY_JOB, {
+        siteId: this.props.site.id,
+        jobId,
+      });
+
+      if (response.success) {
+        this.setState({
+          lastCommandOutput: response.message || `Job ${jobId} pushed back to queue`,
+          lastCommandSuccess: true,
+          showOutput: true,
+        });
+        // Refresh the list
+        await this.fetchFailedJobs();
+      } else {
+        this.setState({
+          lastCommandOutput: response.error || 'Failed to retry job',
+          lastCommandSuccess: false,
+          showOutput: true,
+        });
+      }
+    } catch (error: any) {
+      this.setState({
+        lastCommandOutput: error.message || 'Failed to retry job',
+        lastCommandSuccess: false,
+        showOutput: true,
+      });
+    } finally {
+      this.setState({ processingJobId: null });
+    }
+  };
+
+  /**
+   * Retry all failed jobs.
+   */
+  handleRetryAllJobs = async (): Promise<void> => {
+    await this.handleRetryJob('all');
+  };
+
+  /**
+   * Delete (forget) a failed job.
+   */
+  handleForgetJob = async (jobId: string): Promise<void> => {
+    if (!this.ipcRenderer) return;
+
+    this.setState({ processingJobId: jobId });
+
+    try {
+      const response = await this.ipcRenderer.invoke(IPC_CHANNELS.FORGET_JOB, {
+        siteId: this.props.site.id,
+        jobId,
+      });
+
+      if (response.success) {
+        this.setState({
+          lastCommandOutput: response.message || 'Job deleted',
+          lastCommandSuccess: true,
+          showOutput: true,
+        });
+        // Refresh the list
+        await this.fetchFailedJobs();
+      } else {
+        this.setState({
+          lastCommandOutput: response.error || 'Failed to delete job',
+          lastCommandSuccess: false,
+          showOutput: true,
+        });
+      }
+    } catch (error: any) {
+      this.setState({
+        lastCommandOutput: error.message || 'Failed to delete job',
+        lastCommandSuccess: false,
+        showOutput: true,
+      });
+    } finally {
+      this.setState({ processingJobId: null });
+    }
+  };
+
+  /**
+   * Flush all failed jobs.
+   */
+  handleFlushAllJobs = async (): Promise<void> => {
+    if (!this.ipcRenderer) return;
+
+    // Confirm before flushing
+    if (!confirm('Are you sure you want to delete ALL failed jobs? This cannot be undone.')) {
+      return;
+    }
+
+    this.setState({ processingJobId: 'flush' });
+
+    try {
+      const response = await this.ipcRenderer.invoke(IPC_CHANNELS.FLUSH_JOBS, {
+        siteId: this.props.site.id,
+      });
+
+      if (response.success) {
+        this.setState({
+          lastCommandOutput: response.message || 'All failed jobs deleted',
+          lastCommandSuccess: true,
+          showOutput: true,
+          failedJobs: [],
+        });
+      } else {
+        this.setState({
+          lastCommandOutput: response.error || 'Failed to flush jobs',
+          lastCommandSuccess: false,
+          showOutput: true,
+        });
+      }
+    } catch (error: any) {
+      this.setState({
+        lastCommandOutput: error.message || 'Failed to flush jobs',
+        lastCommandSuccess: false,
+        showOutput: true,
+      });
+    } finally {
+      this.setState({ processingJobId: null });
+    }
+  };
+
   render(): React.ReactNode {
     const { site } = this.props;
     const {
@@ -637,6 +826,10 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
       envRaw,
       isLoadingEnv,
       isSavingEnv,
+      showQueueMonitor,
+      failedJobs,
+      isLoadingJobs,
+      processingJobId,
     } = this.state;
 
     const customOptions = site.customOptions || {};
@@ -1086,6 +1279,282 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                     outline: 'none',
                   },
                 })
+          )
+      ),
+
+      // Queue Monitor Section
+      React.createElement(
+        'div',
+        {
+          style: {
+            borderTop: '1px solid #e5e7eb',
+          },
+        },
+        React.createElement(
+          'div',
+          {
+            onClick: this.handleToggleQueueMonitor,
+            style: {
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+            },
+          },
+          React.createElement(
+            'h4',
+            {
+              style: {
+                margin: 0,
+                fontSize: '12px',
+                fontWeight: 500,
+                color: '#666',
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.5px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              },
+            },
+            React.createElement('span', {}, showQueueMonitor ? '▼' : '▶'),
+            'Queue Monitor',
+            failedJobs.length > 0 &&
+              React.createElement(
+                'span',
+                {
+                  style: {
+                    padding: '2px 6px',
+                    fontSize: '10px',
+                    backgroundColor: '#fed7d7',
+                    color: '#c53030',
+                    borderRadius: '10px',
+                    fontWeight: 600,
+                  },
+                },
+                failedJobs.length
+              )
+          ),
+          React.createElement(
+            'div',
+            { style: { display: 'flex', gap: '8px' } },
+            showQueueMonitor && failedJobs.length > 0 &&
+              React.createElement(
+                'button',
+                {
+                  onClick: (e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    this.handleRetryAllJobs();
+                  },
+                  disabled: isLoadingJobs || processingJobId !== null,
+                  style: {
+                    padding: '4px 8px',
+                    fontSize: '11px',
+                    color: '#fff',
+                    backgroundColor: processingJobId ? '#ccc' : '#48bb78',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: processingJobId ? 'not-allowed' : 'pointer',
+                  },
+                },
+                'Retry All'
+              ),
+            React.createElement(
+              'button',
+              {
+                onClick: (e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  this.fetchFailedJobs();
+                },
+                disabled: isLoadingJobs,
+                style: {
+                  padding: '4px 8px',
+                  fontSize: '11px',
+                  color: '#666',
+                  backgroundColor: '#f8f9fa',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                },
+              },
+              isLoadingJobs ? 'Loading...' : 'Refresh'
+            )
+          )
+        ),
+        showQueueMonitor &&
+          React.createElement(
+            'div',
+            {
+              style: {
+                padding: '0 20px 16px 20px',
+              },
+            },
+            isLoadingJobs
+              ? React.createElement(
+                  'div',
+                  { style: { padding: '20px', textAlign: 'center' as const, color: '#666' } },
+                  'Loading failed jobs...'
+                )
+              : failedJobs.length === 0
+              ? React.createElement(
+                  'div',
+                  {
+                    style: {
+                      padding: '20px',
+                      textAlign: 'center' as const,
+                      color: '#48bb78',
+                      backgroundColor: '#f0fff4',
+                      borderRadius: '6px',
+                      border: '1px solid #c6f6d5',
+                    },
+                  },
+                  '✓ No failed jobs'
+                )
+              : React.createElement(
+                  'div',
+                  {},
+                  // Jobs table
+                  React.createElement(
+                    'table',
+                    {
+                      style: {
+                        width: '100%',
+                        borderCollapse: 'collapse' as const,
+                        fontSize: '12px',
+                      },
+                    },
+                    React.createElement(
+                      'thead',
+                      {},
+                      React.createElement(
+                        'tr',
+                        {
+                          style: {
+                            backgroundColor: '#f8f9fa',
+                            borderBottom: '1px solid #e5e7eb',
+                          },
+                        },
+                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'left' as const, fontWeight: 500 } }, 'ID'),
+                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'left' as const, fontWeight: 500 } }, 'Queue'),
+                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'left' as const, fontWeight: 500 } }, 'Failed At'),
+                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'right' as const, fontWeight: 500 } }, 'Actions')
+                      )
+                    ),
+                    React.createElement(
+                      'tbody',
+                      {},
+                      failedJobs.map((job) =>
+                        React.createElement(
+                          'tr',
+                          {
+                            key: job.id,
+                            style: {
+                              borderBottom: '1px solid #f0f0f0',
+                            },
+                          },
+                          React.createElement(
+                            'td',
+                            {
+                              style: {
+                                padding: '8px 12px',
+                                fontFamily: 'Monaco, Menlo, monospace',
+                              },
+                            },
+                            job.id
+                          ),
+                          React.createElement(
+                            'td',
+                            { style: { padding: '8px 12px' } },
+                            job.queue
+                          ),
+                          React.createElement(
+                            'td',
+                            {
+                              style: {
+                                padding: '8px 12px',
+                                color: '#666',
+                                fontSize: '11px',
+                              },
+                            },
+                            job.failedAt
+                          ),
+                          React.createElement(
+                            'td',
+                            {
+                              style: {
+                                padding: '8px 12px',
+                                textAlign: 'right' as const,
+                              },
+                            },
+                            React.createElement(
+                              'button',
+                              {
+                                onClick: () => this.handleRetryJob(job.id),
+                                disabled: processingJobId !== null,
+                                style: {
+                                  padding: '4px 8px',
+                                  fontSize: '10px',
+                                  color: '#fff',
+                                  backgroundColor: processingJobId === job.id ? '#ccc' : '#48bb78',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: processingJobId ? 'not-allowed' : 'pointer',
+                                  marginRight: '4px',
+                                },
+                              },
+                              processingJobId === job.id ? '...' : 'Retry'
+                            ),
+                            React.createElement(
+                              'button',
+                              {
+                                onClick: () => this.handleForgetJob(job.id),
+                                disabled: processingJobId !== null,
+                                style: {
+                                  padding: '4px 8px',
+                                  fontSize: '10px',
+                                  color: '#c53030',
+                                  backgroundColor: '#fff',
+                                  border: '1px solid #fed7d7',
+                                  borderRadius: '3px',
+                                  cursor: processingJobId ? 'not-allowed' : 'pointer',
+                                },
+                              },
+                              'Delete'
+                            )
+                          )
+                        )
+                      )
+                    )
+                  ),
+                  // Flush all button
+                  failedJobs.length > 1 &&
+                    React.createElement(
+                      'div',
+                      {
+                        style: {
+                          marginTop: '12px',
+                          textAlign: 'center' as const,
+                        },
+                      },
+                      React.createElement(
+                        'button',
+                        {
+                          onClick: this.handleFlushAllJobs,
+                          disabled: processingJobId !== null,
+                          style: {
+                            padding: '6px 12px',
+                            fontSize: '11px',
+                            color: '#c53030',
+                            backgroundColor: '#fff',
+                            border: '1px solid #fed7d7',
+                            borderRadius: '4px',
+                            cursor: processingJobId ? 'not-allowed' : 'pointer',
+                          },
+                        },
+                        processingJobId === 'flush' ? 'Deleting...' : 'Flush All Failed Jobs'
+                      )
+                    )
+                )
           )
       ),
 

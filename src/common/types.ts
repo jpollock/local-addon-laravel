@@ -372,3 +372,60 @@ export interface UpdateEnvResponse {
   success: boolean;
   error?: string;
 }
+
+/**
+ * Failed job entry from queue:failed.
+ */
+export interface FailedJob {
+  /** Job ID */
+  id: string;
+
+  /** Connection name (e.g., 'database', 'redis') */
+  connection: string;
+
+  /** Queue name (e.g., 'default', 'emails') */
+  queue: string;
+
+  /** Timestamp when job failed */
+  failedAt: string;
+
+  /** Job class name extracted from payload (optional) */
+  payload?: string;
+}
+
+/**
+ * Request to get failed jobs.
+ */
+export interface GetFailedJobsRequest {
+  /** Site ID */
+  siteId: string;
+}
+
+/**
+ * Response from queue:failed command.
+ */
+export interface GetFailedJobsResponse {
+  success: boolean;
+  jobs?: FailedJob[];
+  error?: string;
+}
+
+/**
+ * Request to retry/forget a specific job.
+ */
+export interface QueueJobRequest {
+  /** Site ID */
+  siteId: string;
+
+  /** Job ID to retry or forget */
+  jobId: string;
+}
+
+/**
+ * Response from queue operations (retry, forget, flush).
+ */
+export interface QueueOperationResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
