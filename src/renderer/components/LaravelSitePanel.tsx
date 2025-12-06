@@ -4,12 +4,41 @@
  * Displays Laravel-specific information and quick actions
  * on the site info overview page for Laravel sites.
  *
+ * Also injects CSS to hide WordPress-specific UI elements.
+ *
  * IMPORTANT: Class-based component required (no React hooks).
  */
 
 import * as React from 'react';
 import { IPC_CHANNELS, QUICK_ARTISAN_COMMANDS } from '../../common/constants';
 import type { LaravelPanelProps, ArtisanResult } from '../../common/types';
+
+/**
+ * CSS to hide WordPress-specific UI elements for Laravel sites.
+ * These selectors target common WordPress-related elements in Local's UI.
+ */
+const LARAVEL_SITE_CSS = `
+  /* Hide WordPress version row in site info */
+  .laravel-site [data-testid="wordpress-version"],
+  .laravel-site .SiteInfoOverview__WordPressVersion,
+  .laravel-site [class*="WordPressVersion"],
+  .laravel-site [class*="wordpress-version"] {
+    display: none !important;
+  }
+
+  /* Hide "Open WP Admin" button for Laravel sites */
+  .laravel-site [data-testid="open-wp-admin"],
+  .laravel-site button[title*="WP Admin"],
+  .laravel-site a[href*="wp-admin"] {
+    display: none !important;
+  }
+
+  /* Hide WordPress-specific menu items */
+  .laravel-site [class*="WPAdmin"],
+  .laravel-site [class*="wp-admin"] {
+    display: none !important;
+  }
+`;
 
 // Get ipcRenderer - try multiple methods for Local's environment
 const getIpcRenderer = (): any => {
@@ -44,7 +73,11 @@ interface State {
   lastCommandOutput: string | null;
   lastCommandSuccess: boolean | null;
   showOutput: boolean;
+  siteStatus: string;
 }
+
+/** Style element ID for Laravel CSS injection */
+const LARAVEL_STYLE_ID = 'local-laravel-site-styles';
 
 /**
  * LaravelSitePanel component.
@@ -53,9 +86,15 @@ interface State {
  * - Laravel version and environment info
  * - Quick artisan command buttons
  * - Command output viewer
+ *
+ * Also handles:
+ * - CSS injection to hide WordPress-specific UI
+ * - Adding 'laravel-site' class to parent container
  */
 export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> {
   private ipcRenderer: any;
+  private observer: MutationObserver | null = null;
+  private statusPollInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(props: LaravelPanelProps) {
     super(props);
@@ -65,16 +104,206 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
       lastCommandOutput: null,
       lastCommandSuccess: null,
       showOutput: false,
+      siteStatus: props.siteStatus || 'unknown',
     };
 
     this.ipcRenderer = getIpcRenderer();
+  }
+
+  componentDidMount(): void {
+    console.log('[LaravelSitePanel] componentDidMount fired');
+
+    // Inject CSS to hide WordPress elements
+    this.injectLaravelStyles();
+
+    // Add class to parent container for CSS scoping
+    this.addLaravelSiteClass();
+
+    // Start observer to hide WordPress elements as they appear
+    this.startWordPressElementObserver();
+
+    // Fetch initial site status
+    this.fetchSiteStatus();
+
+    // Poll for site status changes every 2 seconds
+    this.statusPollInterval = setInterval(() => {
+      this.fetchSiteStatus();
+    }, 2000);
+  }
+
+  componentWillUnmount(): void {
+    // Clean up observer
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
+
+    // Clean up status polling
+    if (this.statusPollInterval) {
+      clearInterval(this.statusPollInterval);
+      this.statusPollInterval = null;
+    }
+
+    // Remove the class when leaving the site
+    this.removeLaravelSiteClass();
+
+    // Show WordPress elements again when leaving
+    this.showWordPressElements();
+  }
+
+  /**
+   * Fetch site status from main process.
+   */
+  private async fetchSiteStatus(): Promise<void> {
+    if (!this.ipcRenderer) return;
+
+    try {
+      const response = await this.ipcRenderer.invoke(IPC_CHANNELS.GET_SITE_STATUS, {
+        siteId: this.props.site.id,
+      });
+
+      if (response.success && response.status !== this.state.siteStatus) {
+        this.setState({ siteStatus: response.status });
+      }
+    } catch (error) {
+      console.warn('[LaravelSitePanel] Failed to fetch site status:', error);
+    }
+  }
+
+  /**
+   * Start a MutationObserver to watch for WordPress elements and hide them.
+   * This handles the timing issue where elements render after our component mounts.
+   */
+  private startWordPressElementObserver(): void {
+    // Initial attempt (in case elements already exist)
+    this.hideWordPressElements();
+
+    // Watch for new elements being added to the DOM
+    this.observer = new MutationObserver(() => {
+      this.hideWordPressElements();
+    });
+
+    this.observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+
+    // Stop observing after 3 seconds (page should be stable by then)
+    setTimeout(() => {
+      if (this.observer) {
+        this.observer.disconnect();
+        this.observer = null;
+        console.log('[LaravelSitePanel] Observer disconnected after timeout');
+      }
+    }, 3000);
+  }
+
+  /**
+   * Inject CSS styles to hide WordPress-specific UI.
+   */
+  private injectLaravelStyles(): void {
+    // Only inject once
+    if (document.getElementById(LARAVEL_STYLE_ID)) {
+      return;
+    }
+
+    const styleEl = document.createElement('style');
+    styleEl.id = LARAVEL_STYLE_ID;
+    styleEl.textContent = LARAVEL_SITE_CSS;
+    document.head.appendChild(styleEl);
+  }
+
+  /**
+   * Add 'laravel-site' class to the site info container.
+   */
+  private addLaravelSiteClass(): void {
+    // Find the main site info container and add our class
+    const siteInfoContainer = document.querySelector('[class*="SiteInfo"]') ||
+      document.querySelector('[class*="site-info"]') ||
+      document.querySelector('main');
+
+    if (siteInfoContainer) {
+      siteInfoContainer.classList.add('laravel-site');
+    }
+  }
+
+  /**
+   * Remove 'laravel-site' class when leaving.
+   */
+  private removeLaravelSiteClass(): void {
+    const containers = document.querySelectorAll('.laravel-site');
+    containers.forEach((el) => el.classList.remove('laravel-site'));
+  }
+
+  /**
+   * Hide WordPress-specific elements by finding them via text content.
+   */
+  private hideWordPressElements(): void {
+    // WordPress-specific labels to hide (case-insensitive)
+    const labelsToHide = [
+      'wordpress version',
+      'one-click admin',
+      'multisite',
+    ];
+
+    // Find and hide rows containing WordPress-specific labels
+    const allStrong = document.querySelectorAll('strong');
+
+    allStrong.forEach((el) => {
+      const text = el.textContent?.toLowerCase() || '';
+
+      for (const label of labelsToHide) {
+        if (text.includes(label)) {
+          // Hide the parent TableListRow
+          const row = el.closest('li') || el.closest('[class*="TableListRow"]');
+          if (row && !(row as HTMLElement).hasAttribute('data-hidden-by-laravel')) {
+            console.log('[LaravelSitePanel] Hiding row:', label);
+            (row as HTMLElement).style.display = 'none';
+            (row as HTMLElement).setAttribute('data-hidden-by-laravel', 'true');
+          }
+          break;
+        }
+      }
+    });
+
+    // Find and hide "Open WP Admin" or similar buttons
+    const allButtons = document.querySelectorAll('button, a');
+    allButtons.forEach((el) => {
+      // Skip if already hidden
+      if ((el as HTMLElement).hasAttribute('data-hidden-by-laravel')) {
+        return;
+      }
+
+      const text = el.textContent?.toLowerCase() || '';
+      const title = el.getAttribute('title')?.toLowerCase() || '';
+
+      if (text.includes('wp admin') || text.includes('wordpress') ||
+          text.includes('one-click admin') ||
+          title.includes('wp admin') || title.includes('wordpress')) {
+        console.log('[LaravelSitePanel] Hiding button:', text || title);
+        (el as HTMLElement).style.display = 'none';
+        (el as HTMLElement).setAttribute('data-hidden-by-laravel', 'true');
+      }
+    });
+  }
+
+  /**
+   * Show WordPress elements that were hidden.
+   */
+  private showWordPressElements(): void {
+    const hiddenElements = document.querySelectorAll('[data-hidden-by-laravel="true"]');
+    hiddenElements.forEach((el) => {
+      (el as HTMLElement).style.display = '';
+      el.removeAttribute('data-hidden-by-laravel');
+    });
   }
 
   /**
    * Run an artisan command.
    */
   handleRunCommand = async (command: string): Promise<void> => {
-    const { site, siteStatus } = this.props;
+    const { site } = this.props;
+    const { siteStatus } = this.state;
 
     if (siteStatus !== 'running') {
       this.setState({
@@ -141,8 +370,8 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
   };
 
   render(): React.ReactNode {
-    const { site, siteStatus } = this.props;
-    const { isRunningCommand, lastCommandOutput, lastCommandSuccess, showOutput } = this.state;
+    const { site } = this.props;
+    const { isRunningCommand, lastCommandOutput, lastCommandSuccess, showOutput, siteStatus } = this.state;
 
     const customOptions = site.customOptions || {};
     const laravelVersion = customOptions.laravelVersion || 'Unknown';

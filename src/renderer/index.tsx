@@ -91,17 +91,24 @@ function registerCreateSiteFlow(hooks: any, _LocalReact: typeof React): void {
 function registerSiteInfoPanel(hooks: any, _LocalReact: typeof React): void {
   // Add Laravel panel to site info when viewing a Laravel site
   hooks.addContent('SiteInfoOverview', (props: any) => {
-    const { site, siteStatus } = props;
+    // Props IS the site object directly (not props.site)
+    const site = props;
+
+    console.log('[LocalLaravel] Site:', site?.id, site?.name);
+    console.log('[LocalLaravel] customOptions:', JSON.stringify(site?.customOptions));
 
     // Only show for Laravel sites
     if (site?.customOptions?.siteType !== 'laravel') {
+      console.log('[LocalLaravel] Not a Laravel site, skipping panel');
       return null;
     }
 
-    // Render the Laravel site panel with full artisan command support
+    console.log('[LocalLaravel] Rendering LaravelSitePanel!');
+
+    // Render the Laravel site panel
     return React.createElement(LaravelSitePanel, {
       site,
-      siteStatus: siteStatus || 'unknown',
+      siteStatus: 'unknown', // siteStatus not provided in this hook
     });
   });
 }

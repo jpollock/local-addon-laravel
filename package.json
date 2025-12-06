@@ -67,6 +67,7 @@
   "dependencies": {
     "@getflywheel/local-components": "^16.0.0",
     "fs-extra": "^11.2.0",
+    "npm": "^11.0.0",
     "zod": "^3.22.4"
   }
 }

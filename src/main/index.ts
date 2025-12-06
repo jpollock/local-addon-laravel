@@ -330,6 +330,21 @@ function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
     }
   });
 
+  // Handler: Get site status (running/stopped)
+  ipcMain.handle(IPC_CHANNELS.GET_SITE_STATUS, async (_event, data: { siteId: string }) => {
+    try {
+      const site = siteData.getSite(data.siteId);
+      if (!site) {
+        return { success: false, status: 'unknown', error: 'Site not found' };
+      }
+
+      const status = siteProcessManager.getSiteStatus(site);
+      return { success: true, status: status || 'stopped' };
+    } catch (error: any) {
+      return { success: false, status: 'unknown', error: error.message };
+    }
+  });
+
   localLogger.info('[LocalLaravel] IPC handlers registered');
 }
 

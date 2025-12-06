@@ -18,6 +18,7 @@ import * as os from 'os';
 import * as LocalMain from '@getflywheel/local/main';
 
 import { composerManager } from './composer-manager';
+import { npmManager } from './npm-manager';
 import { LARAVEL_VERSIONS, STARTER_KITS, CREATION_STAGES } from '../common/constants';
 import type {
   LaravelVersion,
@@ -110,6 +111,15 @@ export class LaravelInstaller {
 
       this.logger.info('[LaravelInstaller] Laravel project created successfully');
 
+      // Disable Composer's runtime PHP version check
+      // (Local's PHP 8.3 works fine, but some packages declare 8.4+ requirement)
+      await composerManager.runForSite(site, [
+        'config',
+        'platform-check',
+        'false',
+      ]);
+      this.logger.info('[LaravelInstaller] Disabled Composer platform check');
+
       // Step 2: Configure .env
       this.reportProgress(onProgress, CREATION_STAGES.CONFIGURING_ENV);
 
@@ -142,6 +152,7 @@ export class LaravelInstaller {
             'require',
             pkg,
             '--no-interaction',
+            '--ignore-platform-reqs',  // Use Local's PHP, not system PHP
           ], { cwd: appPath });
 
           if (requireResult.success) {
@@ -164,6 +175,7 @@ export class LaravelInstaller {
           // Run npm install and build if frontend assets exist
           const packageJsonPath = path.join(appPath, 'package.json');
           if (await fs.pathExists(packageJsonPath)) {
+            // NpmManager handles Node.js via Electron's built-in Node v22+
             await this.runNpm(appPath, ['install']);
             await this.runNpm(appPath, ['run', 'build']);
             this.logger.info('[LaravelInstaller] Frontend assets built');
@@ -212,6 +224,10 @@ export class LaravelInstaller {
     let envContent = await fs.readFile(envPath, 'utf8');
 
     // Update environment variables
+    // Note: escapeEnvValue quotes values with spaces (e.g., socket paths on macOS)
+    const socketPath = this.getMysqlSocketPath(site);
+    this.logger.info(`[LaravelInstaller] MySQL socket path: ${socketPath}`);
+
     const updates: Record<string, string> = {
       APP_NAME: this.escapeEnvValue(site.name),
       APP_ENV: 'local',
@@ -223,10 +239,10 @@ export class LaravelInstaller {
       DB_PORT: '3306',
       DB_DATABASE: site.mysql.database,
       DB_USERNAME: site.mysql.user,
-      DB_PASSWORD: site.mysql.password,
+      DB_PASSWORD: this.escapeEnvValue(site.mysql.password),
 
-      // Add socket path for Local's MySQL
-      DB_SOCKET: this.getMysqlSocketPath(site),
+      // Add socket path for Local's MySQL (quoted for spaces in path)
+      DB_SOCKET: this.escapeEnvValue(socketPath),
     };
 
     for (const [key, value] of Object.entries(updates)) {
@@ -250,36 +266,66 @@ export class LaravelInstaller {
   private getMysqlSocketPath(site: LocalSite): string {
     const runDataPath = site.paths?.runData;
 
-    if (runDataPath) {
+    // Check if runDataPath is a real path (not an unresolved template variable)
+    if (runDataPath && !runDataPath.includes('%%')) {
       const resolvedPath = runDataPath.startsWith('~')
         ? runDataPath.replace('~', os.homedir())
         : runDataPath;
       return path.join(resolvedPath, 'mysql', 'mysqld.sock');
     }
 
-    // Fallback
-    return path.join(os.homedir(), '.config', 'Local', 'run', site.id, 'mysql', 'mysqld.sock');
+    // Platform-specific fallback paths
+    const platform = process.platform;
+
+    if (platform === 'darwin') {
+      // macOS: ~/Library/Application Support/Local/run/{siteId}/mysql/mysqld.sock
+      return path.join(
+        os.homedir(),
+        'Library',
+        'Application Support',
+        'Local',
+        'run',
+        site.id,
+        'mysql',
+        'mysqld.sock'
+      );
+    } else if (platform === 'win32') {
+      // Windows: %APPDATA%/Local/run/{siteId}/mysql/mysqld.sock
+      const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+      return path.join(appData, 'Local', 'run', site.id, 'mysql', 'mysqld.sock');
+    } else {
+      // Linux: ~/.config/Local/run/{siteId}/mysql/mysqld.sock
+      return path.join(os.homedir(), '.config', 'Local', 'run', site.id, 'mysql', 'mysqld.sock');
+    }
   }
 
   /**
    * Run an artisan command.
+   *
+   * Prepends node wrapper to PATH so that artisan commands that run npm
+   * (like breeze:install) use Electron's Node.js instead of system Node.
    */
   private async runArtisan(appPath: string, args: string[]): Promise<void> {
     const { exec } = require('child_process');
     const { promisify } = require('util');
     const execAsync = promisify(exec);
 
+    // Get node wrapper directory and prepend to PATH
+    const wrapperDir = await npmManager.ensureNodeWrapper();
+    const newPath = `${wrapperDir}${path.delimiter}${process.env.PATH || ''}`;
+
     const command = `php artisan ${args.join(' ')}`;
 
     this.logger.info(`[LaravelInstaller] Running: ${command}`);
+    this.logger.info(`[LaravelInstaller] Node wrapper PATH: ${wrapperDir}`);
 
     try {
       const { stdout, stderr } = await execAsync(command, {
         cwd: appPath,
-        timeout: 60000, // 1 minute timeout
+        timeout: 120000, // 2 minute timeout for commands that run npm
         env: {
           ...process.env,
-          PATH: process.env.PATH,
+          PATH: newPath,
         },
       });
 
@@ -296,29 +342,30 @@ export class LaravelInstaller {
   }
 
   /**
-   * Run an npm command.
+   * Run an npm command using NpmManager.
+   *
+   * Uses smart npm detection:
+   * 1. Tries system npm first (user's installed version)
+   * 2. Falls back to bundled npm with Electron as Node.js
    */
   private async runNpm(appPath: string, args: string[]): Promise<void> {
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
-
-    const command = `npm ${args.join(' ')}`;
-
-    this.logger.info(`[LaravelInstaller] Running: ${command}`);
+    this.logger.info(`[LaravelInstaller] Running: npm ${args.join(' ')}`);
 
     try {
-      await execAsync(command, {
+      await npmManager.runCommand(args, {
         cwd: appPath,
-        timeout: 5 * 60 * 1000, // 5 minute timeout for npm
-        env: {
-          ...process.env,
-          PATH: process.env.PATH,
+        onProgress: (output) => {
+          // Log npm output for debugging
+          if (output.trim()) {
+            this.logger.info(`[LaravelInstaller] npm: ${output.trim()}`);
+          }
         },
       });
+      this.logger.info(`[LaravelInstaller] npm ${args[0]} completed`);
     } catch (error: any) {
       this.logger.warn(`[LaravelInstaller] npm command failed (non-critical): ${error.message}`);
       // Don't throw - npm failures shouldn't block installation
+      // Laravel will still work, just without compiled frontend assets
     }
   }
 

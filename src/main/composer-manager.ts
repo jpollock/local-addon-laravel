@@ -353,14 +353,17 @@ export class ComposerManager {
     // Ensure parent directory exists
     await fs.ensureDir(path.dirname(projectPath));
 
-    // Create project
+    // Create project - quote path to handle spaces (e.g., "Local Sites")
+    const quotedPath = `"${projectPath}"`;
+
     return this.run(
       [
         'create-project',
         '--prefer-dist',
         '--no-interaction',
+        '--ignore-platform-reqs',  // Use Local's PHP version, not system PHP
         laravelConstraint,
-        projectPath,
+        quotedPath,
       ],
       { cwd: path.dirname(projectPath) }
     );
