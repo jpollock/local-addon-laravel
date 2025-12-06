@@ -11,6 +11,34 @@ import * as React from 'react';
 import type { WizardStepProps, CreationProgress } from '../../../common/types';
 import { IPC_CHANNELS, CREATION_STAGES } from '../../../common/constants';
 
+// Get ipcRenderer - try multiple methods for Local's environment
+const getIpcRenderer = (): any => {
+  // Method 1: Try window.require (Electron with nodeIntegration)
+  if (typeof (window as any).require === 'function') {
+    try {
+      return (window as any).require('electron').ipcRenderer;
+    } catch (e) {
+      // Continue to next method
+    }
+  }
+
+  // Method 2: Try window.electron (contextBridge exposure)
+  if ((window as any).electron?.ipcRenderer) {
+    return (window as any).electron.ipcRenderer;
+  }
+
+  // Method 3: Try global require
+  if (typeof require === 'function') {
+    try {
+      return require('electron').ipcRenderer;
+    } catch (e) {
+      // Continue
+    }
+  }
+
+  return null;
+};
+
 interface State {
   progress: number;
   stage: string;
@@ -28,7 +56,7 @@ interface State {
  */
 export class LaravelBuildingStep extends React.Component<WizardStepProps, State> {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
-  private electron: any;
+  private ipcRenderer: any;
 
   constructor(props: WizardStepProps) {
     super(props);
@@ -42,8 +70,8 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
       siteId: null,
     };
 
-    // Get electron from window context
-    this.electron = (window as any).electron;
+    // Get ipcRenderer
+    this.ipcRenderer = getIpcRenderer();
   }
 
   componentDidMount(): void {
@@ -62,9 +90,18 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
   async startSiteCreation(): Promise<void> {
     const { siteSettings } = this.props;
 
+    // Check if ipcRenderer is available
+    if (!this.ipcRenderer) {
+      this.setState({
+        error: 'Unable to communicate with Local (ipcRenderer not available)',
+        progress: 0,
+      });
+      return;
+    }
+
     try {
       // Invoke site creation via IPC
-      const response = await this.electron.ipcRenderer.invoke(
+      const response = await this.ipcRenderer.invoke(
         IPC_CHANNELS.CREATE_SITE,
         {
           siteName: siteSettings.siteName,
@@ -102,9 +139,11 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
    * Poll for creation progress updates.
    */
   startProgressPolling(siteId: string): void {
+    if (!this.ipcRenderer) return;
+
     this.pollInterval = setInterval(async () => {
       try {
-        const status = await this.electron.ipcRenderer.invoke(
+        const status = await this.ipcRenderer.invoke(
           IPC_CHANNELS.GET_CREATION_STATUS,
           { siteId }
         );

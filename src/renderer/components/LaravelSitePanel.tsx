@@ -11,6 +11,34 @@ import * as React from 'react';
 import { IPC_CHANNELS, QUICK_ARTISAN_COMMANDS } from '../../common/constants';
 import type { LaravelPanelProps, ArtisanResult } from '../../common/types';
 
+// Get ipcRenderer - try multiple methods for Local's environment
+const getIpcRenderer = (): any => {
+  // Method 1: Try window.require (Electron with nodeIntegration)
+  if (typeof (window as any).require === 'function') {
+    try {
+      return (window as any).require('electron').ipcRenderer;
+    } catch (e) {
+      // Continue to next method
+    }
+  }
+
+  // Method 2: Try window.electron (contextBridge exposure)
+  if ((window as any).electron?.ipcRenderer) {
+    return (window as any).electron.ipcRenderer;
+  }
+
+  // Method 3: Try global require
+  if (typeof require === 'function') {
+    try {
+      return require('electron').ipcRenderer;
+    } catch (e) {
+      // Continue
+    }
+  }
+
+  return null;
+};
+
 interface State {
   isRunningCommand: boolean;
   lastCommandOutput: string | null;
@@ -27,7 +55,7 @@ interface State {
  * - Command output viewer
  */
 export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> {
-  private electron: any;
+  private ipcRenderer: any;
 
   constructor(props: LaravelPanelProps) {
     super(props);
@@ -39,7 +67,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
       showOutput: false,
     };
 
-    this.electron = (window as any).electron;
+    this.ipcRenderer = getIpcRenderer();
   }
 
   /**
@@ -57,6 +85,15 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
       return;
     }
 
+    if (!this.ipcRenderer) {
+      this.setState({
+        lastCommandOutput: 'Error: Unable to communicate with Local.',
+        lastCommandSuccess: false,
+        showOutput: true,
+      });
+      return;
+    }
+
     this.setState({
       isRunningCommand: true,
       lastCommandOutput: null,
@@ -64,7 +101,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
     });
 
     try {
-      const response = await this.electron.ipcRenderer.invoke(IPC_CHANNELS.RUN_ARTISAN, {
+      const response = await this.ipcRenderer.invoke(IPC_CHANNELS.RUN_ARTISAN, {
         siteId: site.id,
         command: command.split(' '),
       });
