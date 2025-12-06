@@ -13,6 +13,7 @@ import { FLOW_NAME, ROUTES } from '../common/constants';
 import { LaravelEntryStep } from './components/wizard/LaravelEntryStep';
 import { LaravelConfigStep } from './components/wizard/LaravelConfigStep';
 import { LaravelBuildingStep } from './components/wizard/LaravelBuildingStep';
+import { LaravelSitePanel } from './components/LaravelSitePanel';
 
 /**
  * Renderer addon entry function.
@@ -87,38 +88,21 @@ function registerCreateSiteFlow(hooks: any, _LocalReact: typeof React): void {
 /**
  * Register the Laravel site info panel.
  */
-function registerSiteInfoPanel(hooks: any, LocalReact: typeof React): void {
+function registerSiteInfoPanel(hooks: any, _LocalReact: typeof React): void {
   // Add Laravel panel to site info when viewing a Laravel site
   hooks.addContent('SiteInfoOverview', (props: any) => {
-    const { site } = props;
+    const { site, siteStatus } = props;
 
     // Only show for Laravel sites
     if (site?.customOptions?.siteType !== 'laravel') {
       return null;
     }
 
-    // TODO: Implement LaravelSitePanel component
-    return LocalReact.createElement(
-      'div',
-      {
-        style: {
-          padding: '16px',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '8px',
-          marginTop: '16px',
-        },
-      },
-      LocalReact.createElement(
-        'h3',
-        { style: { margin: '0 0 8px 0', color: '#f55247' } },
-        'Laravel'
-      ),
-      LocalReact.createElement(
-        'p',
-        { style: { margin: 0, color: '#666' } },
-        `Version: ${site.customOptions.laravelVersion || 'Unknown'}`
-      )
-    );
+    // Render the Laravel site panel with full artisan command support
+    return React.createElement(LaravelSitePanel, {
+      site,
+      siteStatus: siteStatus || 'unknown',
+    });
   });
 }
 
