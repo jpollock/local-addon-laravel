@@ -26,6 +26,7 @@ import type {
   CreateLaravelSiteRequest,
   ArtisanRequest,
   LaravelVersion,
+  StarterKit,
 } from '../common/types';
 
 /**
@@ -143,6 +144,23 @@ function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
       localLogger.info(`[LocalLaravel] Site created: ${site.id}`);
       localLogger.info(`[LocalLaravel] Site customOptions after creation: ${JSON.stringify(site.customOptions)}`);
 
+      // Manually set customOptions on the site since filters don't seem to work
+      const customOptions = {
+        [SITE_TYPE_KEY]: SITE_TYPE_VALUE,
+        laravelVersion: laravelVersion,
+        starterKit: data.starterKit || 'none',
+        breezeStack: data.breezeStack,
+        createdAt: new Date().toISOString(),
+      };
+
+      localLogger.info(`[LocalLaravel] Updating site with customOptions: ${JSON.stringify(customOptions)}`);
+
+      // Update the site with customOptions
+      site.customOptions = customOptions;
+      await siteData.updateSite(site.id, { customOptions });
+
+      localLogger.info(`[LocalLaravel] Site customOptions after update: ${JSON.stringify(site.customOptions)}`);
+
       // Initialize progress tracking
       creationProgress.set(site.id, {
         progress: 15,
@@ -150,12 +168,32 @@ function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
         message: 'Site infrastructure provisioned...',
       });
 
-      // Update pending installation with site ID
-      const installConfig = pendingInstallations.get(data.siteName);
-      if (installConfig) {
-        pendingInstallations.delete(data.siteName);
-        pendingInstallations.set(site.id, installConfig);
-      }
+      // Store installation config for the siteAdded hook won't work, so install directly
+      localLogger.info(`[LocalLaravel] Starting Laravel installation directly...`);
+
+      // Start Laravel installation
+      const installOptions = {
+        laravelVersion: laravelVersion as LaravelVersion,
+        starterKit: (data.starterKit || 'none') as StarterKit,
+        breezeStack: data.breezeStack,
+        onProgress: (progress: any) => {
+          broadcastProgress(site.id, progress);
+        },
+      };
+
+      // Run installation asynchronously (don't await - let it run in background)
+      laravelInstaller.install(site, installOptions).then((result) => {
+        if (result.success) {
+          localLogger.info(`[LocalLaravel] Laravel installed successfully for ${site.name}`);
+          broadcastProgress(site.id, { progress: 100, stage: 'COMPLETE', message: 'Installation complete!' });
+        } else {
+          localLogger.error(`[LocalLaravel] Laravel installation failed: ${result.error}`);
+          broadcastProgress(site.id, { progress: -1, stage: 'error', message: result.error || 'Installation failed', error: result.error });
+        }
+      }).catch((error: any) => {
+        localLogger.error('[LocalLaravel] Installation error:', error);
+        broadcastProgress(site.id, { progress: -1, stage: 'error', message: error.message, error: error.message });
+      });
 
       return {
         success: true,
