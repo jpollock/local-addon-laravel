@@ -18,6 +18,7 @@ export const IPC_CHANNELS = {
   GET_LARAVEL_INFO: 'local-laravel:get-info',
   IS_LARAVEL_SITE: 'local-laravel:is-laravel',
   GET_LARAVEL_SITES: 'local-laravel:get-sites',
+  GET_SITE_STATUS: 'local-laravel:get-site-status',
 
   // Artisan commands
   RUN_ARTISAN: 'local-laravel:artisan',
