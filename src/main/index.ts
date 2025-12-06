@@ -129,9 +129,10 @@ function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
         },
       };
 
-      localLogger.info('[LocalLaravel] Creating site with options:', JSON.stringify(newSiteInfo));
+      localLogger.info('[LocalLaravel] Creating site with options:', JSON.stringify(newSiteInfo, null, 2));
 
       // Create the site
+      localLogger.info('[LocalLaravel] Calling addSiteService.addSite...');
       const site = await addSiteService.addSite({
         newSiteInfo,
         wpCredentials: {}, // Not used for Laravel
@@ -139,7 +140,8 @@ function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
         installWP: false,
       });
 
-      localLogger.info('[LocalLaravel] Site created:', site.id);
+      localLogger.info(`[LocalLaravel] Site created: ${site.id}`);
+      localLogger.info(`[LocalLaravel] Site customOptions after creation: ${JSON.stringify(site.customOptions)}`);
 
       // Initialize progress tracking
       creationProgress.set(site.id, {
@@ -303,6 +305,9 @@ function registerLifecycleHooks(context: LocalMain.AddonMainContext): void {
 
   // Hook: Inject Laravel service into site configuration
   hooks.addFilter('defaultSiteServices', (siteServices: any, siteSettings: any) => {
+    localLogger.info('[LocalLaravel] defaultSiteServices filter called');
+    localLogger.info(`[LocalLaravel] siteSettings.customOptions: ${JSON.stringify(siteSettings?.customOptions)}`);
+
     // Check if this is a Laravel site creation
     if (siteSettings.customOptions?.[SITE_TYPE_KEY] === SITE_TYPE_VALUE) {
       localLogger.info('[LocalLaravel] Injecting Laravel service into site config');
@@ -322,23 +327,36 @@ function registerLifecycleHooks(context: LocalMain.AddonMainContext): void {
 
   // Hook: Modify site before creation (mark as Laravel)
   hooks.addFilter('modifyAddSiteObjectBeforeCreation', (site: any, newSiteInfo: any) => {
+    localLogger.info('[LocalLaravel] modifyAddSiteObjectBeforeCreation filter called');
+    localLogger.info(`[LocalLaravel] newSiteInfo.customOptions: ${JSON.stringify(newSiteInfo?.customOptions)}`);
+    localLogger.info(`[LocalLaravel] site.customOptions before: ${JSON.stringify(site?.customOptions)}`);
+
     if (newSiteInfo.customOptions?.[SITE_TYPE_KEY] === SITE_TYPE_VALUE) {
       localLogger.info(`[LocalLaravel] Marking site as Laravel: ${site.name}`);
 
-      return {
+      const updatedSite = {
         ...site,
         customOptions: {
           ...site.customOptions,
           ...newSiteInfo.customOptions,
         },
       };
+
+      localLogger.info(`[LocalLaravel] site.customOptions after: ${JSON.stringify(updatedSite.customOptions)}`);
+      return updatedSite;
     }
     return site;
   });
 
   // Hook: Site added - install Laravel
   hooks.addAction('siteAdded', async (site: any) => {
+    localLogger.info('[LocalLaravel] siteAdded hook triggered');
+    localLogger.info(`[LocalLaravel] site.name: ${site?.name}`);
+    localLogger.info(`[LocalLaravel] site.id: ${site?.id}`);
+    localLogger.info(`[LocalLaravel] site.customOptions: ${JSON.stringify(site?.customOptions)}`);
+
     if (site.customOptions?.[SITE_TYPE_KEY] !== SITE_TYPE_VALUE) {
+      localLogger.info('[LocalLaravel] Not a Laravel site, skipping installation');
       return;
     }
 
