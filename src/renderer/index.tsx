@@ -10,11 +10,9 @@
 
 import * as React from 'react';
 import { FLOW_NAME, ROUTES } from '../common/constants';
-
-// TODO: Import wizard step components
-// import { LaravelEntryStep } from './components/wizard/LaravelEntryStep';
-// import { LaravelConfigStep } from './components/wizard/LaravelConfigStep';
-// import { LaravelBuildingStep } from './components/wizard/LaravelBuildingStep';
+import { LaravelEntryStep } from './components/wizard/LaravelEntryStep';
+import { LaravelConfigStep } from './components/wizard/LaravelConfigStep';
+import { LaravelBuildingStep } from './components/wizard/LaravelBuildingStep';
 
 /**
  * Renderer addon entry function.
@@ -39,14 +37,14 @@ export default function (context: any): void {
 /**
  * Register the Laravel site creation flow.
  */
-function registerCreateSiteFlow(hooks: any, LocalReact: typeof React): void {
+function registerCreateSiteFlow(hooks: any, _LocalReact: typeof React): void {
   // Add "Laravel Project" option to site creation dialog
   hooks.addFilter('CreateSite:RadioOptions', (options: any) => {
     return {
       ...options,
       [FLOW_NAME]: {
         label: 'Laravel Project',
-        description: LocalReact.createElement(
+        description: React.createElement(
           'span',
           {},
           'Create a new Laravel application with PHP, MySQL, and Nginx configured automatically.'
@@ -62,26 +60,25 @@ function registerCreateSiteFlow(hooks: any, LocalReact: typeof React): void {
       return steps;
     }
 
-    // Return Laravel-specific wizard steps
-    // TODO: Implement actual step components
+    // Return Laravel-specific wizard steps with actual components
     return [
       {
         key: 'laravel-entry',
         path: ROUTES.ENTRY,
         name: 'Setup',
-        component: createPlaceholderStep(LocalReact, 'Laravel Setup', 'Configure your Laravel project'),
+        component: LaravelEntryStep,
       },
       {
         key: 'laravel-config',
         path: ROUTES.CONFIG,
         name: 'Configure',
-        component: createPlaceholderStep(LocalReact, 'Configuration', 'PHP version and starter kit'),
+        component: LaravelConfigStep,
       },
       {
         key: 'laravel-building',
         path: ROUTES.BUILDING,
         name: 'Building',
-        component: createPlaceholderStep(LocalReact, 'Building', 'Creating your Laravel project...'),
+        component: LaravelBuildingStep,
       },
     ];
   });
@@ -125,50 +122,3 @@ function registerSiteInfoPanel(hooks: any, LocalReact: typeof React): void {
   });
 }
 
-/**
- * Create a placeholder step component for development.
- * TODO: Replace with actual step components.
- */
-function createPlaceholderStep(
-  LocalReact: typeof React,
-  title: string,
-  description: string
-): React.ComponentType<any> {
-  // Using a class component as required by Local
-  return class PlaceholderStep extends LocalReact.Component<any, any> {
-    render() {
-      return LocalReact.createElement(
-        'div',
-        {
-          style: {
-            padding: '40px',
-            textAlign: 'center' as const,
-          },
-        },
-        LocalReact.createElement(
-          'h2',
-          { style: { marginBottom: '16px' } },
-          title
-        ),
-        LocalReact.createElement(
-          'p',
-          { style: { color: '#666' } },
-          description
-        ),
-        LocalReact.createElement(
-          'p',
-          {
-            style: {
-              marginTop: '24px',
-              padding: '12px',
-              backgroundColor: '#fff3cd',
-              borderRadius: '4px',
-              color: '#856404',
-            },
-          },
-          'Component implementation in progress...'
-        )
-      );
-    }
-  };
-}
