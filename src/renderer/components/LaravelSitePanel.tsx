@@ -74,6 +74,22 @@ interface State {
   lastCommandSuccess: boolean | null;
   showOutput: boolean;
   siteStatus: string;
+  // Custom command
+  customCommand: string;
+  commandHistory: string[];
+  showHistory: boolean;
+  // Log viewer
+  showLogs: boolean;
+  logs: string;
+  isLoadingLogs: boolean;
+  autoRefreshLogs: boolean;
+  // .env editor
+  showEnvEditor: boolean;
+  envVariables: Array<{ key: string; value: string; editing?: boolean }>;
+  envRaw: string;
+  isLoadingEnv: boolean;
+  isSavingEnv: boolean;
+  envEditMode: 'table' | 'raw';
 }
 
 /** Style element ID for Laravel CSS injection */
@@ -99,15 +115,57 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
   constructor(props: LaravelPanelProps) {
     super(props);
 
+    // Load command history from localStorage
+    const savedHistory = this.loadCommandHistory();
+
     this.state = {
       isRunningCommand: false,
       lastCommandOutput: null,
       lastCommandSuccess: null,
       showOutput: false,
       siteStatus: props.siteStatus || 'unknown',
+      // Custom command
+      customCommand: '',
+      commandHistory: savedHistory,
+      showHistory: false,
+      // Log viewer
+      showLogs: false,
+      logs: '',
+      isLoadingLogs: false,
+      autoRefreshLogs: false,
+      // .env editor
+      showEnvEditor: false,
+      envVariables: [],
+      envRaw: '',
+      isLoadingEnv: false,
+      isSavingEnv: false,
+      envEditMode: 'table',
     };
 
     this.ipcRenderer = getIpcRenderer();
+  }
+
+  /**
+   * Load command history from localStorage.
+   */
+  private loadCommandHistory(): string[] {
+    try {
+      const saved = localStorage.getItem('local-laravel-command-history');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Save command history to localStorage.
+   */
+  private saveCommandHistory(history: string[]): void {
+    try {
+      localStorage.setItem('local-laravel-command-history', JSON.stringify(history.slice(0, 20)));
+    } catch {
+      // Ignore localStorage errors
+    }
   }
 
   componentDidMount(): void {
@@ -369,9 +427,217 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
     });
   };
 
+  /**
+   * Handle custom command input change.
+   */
+  handleCustomCommandChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    this.setState({ customCommand: e.target.value });
+  };
+
+  /**
+   * Run custom artisan command.
+   */
+  handleRunCustomCommand = async (): Promise<void> => {
+    const { customCommand, commandHistory } = this.state;
+    const trimmedCommand = customCommand.trim();
+
+    if (!trimmedCommand) return;
+
+    // Add to history (avoid duplicates at top)
+    const newHistory = [trimmedCommand, ...commandHistory.filter((c) => c !== trimmedCommand)].slice(0, 20);
+    this.setState({ commandHistory: newHistory, customCommand: '', showHistory: false });
+    this.saveCommandHistory(newHistory);
+
+    // Run the command
+    await this.handleRunCommand(trimmedCommand);
+  };
+
+  /**
+   * Handle key press in custom command input.
+   */
+  handleCustomCommandKeyPress = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Enter') {
+      this.handleRunCustomCommand();
+    }
+  };
+
+  /**
+   * Select a command from history.
+   */
+  handleSelectFromHistory = (command: string): void => {
+    this.setState({ customCommand: command, showHistory: false });
+  };
+
+  /**
+   * Toggle log viewer visibility.
+   */
+  handleToggleLogs = async (): Promise<void> => {
+    const { showLogs } = this.state;
+
+    if (!showLogs) {
+      // Opening logs, fetch them
+      await this.fetchLogs();
+    }
+
+    this.setState({ showLogs: !showLogs });
+  };
+
+  /**
+   * Fetch Laravel logs from the site.
+   */
+  fetchLogs = async (): Promise<void> => {
+    if (!this.ipcRenderer) return;
+
+    this.setState({ isLoadingLogs: true });
+
+    try {
+      const response = await this.ipcRenderer.invoke(IPC_CHANNELS.GET_LARAVEL_LOGS, {
+        siteId: this.props.site.id,
+        lines: 200,
+      });
+
+      if (response.success) {
+        this.setState({ logs: response.logs || 'No logs found', isLoadingLogs: false });
+      } else {
+        this.setState({ logs: response.error || 'Failed to load logs', isLoadingLogs: false });
+      }
+    } catch (error: any) {
+      this.setState({ logs: error.message || 'Failed to load logs', isLoadingLogs: false });
+    }
+  };
+
+  /**
+   * Toggle auto-refresh for logs.
+   */
+  handleToggleAutoRefresh = (): void => {
+    this.setState((state) => ({ autoRefreshLogs: !state.autoRefreshLogs }));
+  };
+
+  /**
+   * Toggle .env editor visibility.
+   */
+  handleToggleEnvEditor = async (): Promise<void> => {
+    const { showEnvEditor } = this.state;
+
+    if (!showEnvEditor) {
+      // Opening editor, fetch env file
+      await this.fetchEnv();
+    }
+
+    this.setState({ showEnvEditor: !showEnvEditor });
+  };
+
+  /**
+   * Fetch .env file contents.
+   */
+  fetchEnv = async (): Promise<void> => {
+    if (!this.ipcRenderer) return;
+
+    this.setState({ isLoadingEnv: true });
+
+    try {
+      const response = await this.ipcRenderer.invoke(IPC_CHANNELS.GET_ENV, {
+        siteId: this.props.site.id,
+      });
+
+      if (response.success) {
+        this.setState({
+          envVariables: response.variables || [],
+          envRaw: response.raw || '',
+          isLoadingEnv: false,
+        });
+      } else {
+        this.setState({
+          envRaw: response.error || 'Failed to load .env',
+          isLoadingEnv: false,
+        });
+      }
+    } catch (error: any) {
+      this.setState({
+        envRaw: error.message || 'Failed to load .env',
+        isLoadingEnv: false,
+      });
+    }
+  };
+
+  /**
+   * Save .env file.
+   */
+  handleSaveEnv = async (): Promise<void> => {
+    if (!this.ipcRenderer) return;
+
+    this.setState({ isSavingEnv: true });
+
+    try {
+      const { envRaw } = this.state;
+
+      const response = await this.ipcRenderer.invoke(IPC_CHANNELS.UPDATE_ENV, {
+        siteId: this.props.site.id,
+        content: envRaw,
+      });
+
+      if (response.success) {
+        // Refresh the env to show saved state
+        await this.fetchEnv();
+        this.setState({
+          isSavingEnv: false,
+          lastCommandOutput: '.env file saved successfully',
+          lastCommandSuccess: true,
+          showOutput: true,
+        });
+      } else {
+        this.setState({
+          isSavingEnv: false,
+          lastCommandOutput: response.error || 'Failed to save .env',
+          lastCommandSuccess: false,
+          showOutput: true,
+        });
+      }
+    } catch (error: any) {
+      this.setState({
+        isSavingEnv: false,
+        lastCommandOutput: error.message || 'Failed to save .env',
+        lastCommandSuccess: false,
+        showOutput: true,
+      });
+    }
+  };
+
+  /**
+   * Handle .env raw content change.
+   */
+  handleEnvRawChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
+    this.setState({ envRaw: e.target.value });
+  };
+
+  /**
+   * Toggle .env edit mode between table and raw.
+   */
+  handleToggleEnvEditMode = (): void => {
+    this.setState((state) => ({
+      envEditMode: state.envEditMode === 'table' ? 'raw' : 'table',
+    }));
+  };
+
   render(): React.ReactNode {
     const { site } = this.props;
-    const { isRunningCommand, lastCommandOutput, lastCommandSuccess, showOutput, siteStatus } = this.state;
+    const {
+      isRunningCommand,
+      lastCommandOutput,
+      lastCommandSuccess,
+      showOutput,
+      siteStatus,
+      customCommand,
+      commandHistory,
+      showHistory,
+      showLogs,
+      logs,
+      isLoadingLogs,
+      showEnvEditor,
+      envRaw,
+      isLoadingEnv,
+      isSavingEnv,
+    } = this.state;
 
     const customOptions = site.customOptions || {};
     const laravelVersion = customOptions.laravelVersion || 'Unknown';
@@ -529,6 +795,298 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
             );
           })
         )
+      ),
+
+      // Custom Command Section
+      React.createElement(
+        'div',
+        {
+          style: {
+            padding: '16px 20px',
+            borderTop: '1px solid #e5e7eb',
+          },
+        },
+        React.createElement(
+          'h4',
+          {
+            style: {
+              margin: '0 0 12px 0',
+              fontSize: '12px',
+              fontWeight: 500,
+              color: '#666',
+              textTransform: 'uppercase' as const,
+              letterSpacing: '0.5px',
+            },
+          },
+          'Custom Command'
+        ),
+        React.createElement(
+          'div',
+          {
+            style: {
+              display: 'flex',
+              gap: '8px',
+              position: 'relative' as const,
+            },
+          },
+          React.createElement('input', {
+            type: 'text',
+            placeholder: 'e.g., make:model User -m',
+            value: customCommand,
+            onChange: this.handleCustomCommandChange,
+            onKeyPress: this.handleCustomCommandKeyPress,
+            onFocus: () => this.setState({ showHistory: true }),
+            onBlur: () => setTimeout(() => this.setState({ showHistory: false }), 200),
+            disabled: !isRunning || isRunningCommand,
+            style: {
+              flex: 1,
+              padding: '10px 12px',
+              fontSize: '13px',
+              fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
+              border: '1px solid #e5e7eb',
+              borderRadius: '6px',
+              outline: 'none',
+              backgroundColor: isRunning ? '#fff' : '#f8f9fa',
+            },
+          }),
+          React.createElement(
+            'button',
+            {
+              onClick: this.handleRunCustomCommand,
+              disabled: !isRunning || isRunningCommand || !customCommand.trim(),
+              style: {
+                padding: '10px 16px',
+                fontSize: '12px',
+                fontWeight: 500,
+                color: '#fff',
+                backgroundColor: isRunning && customCommand.trim() ? '#f55247' : '#ccc',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: isRunning && customCommand.trim() ? 'pointer' : 'not-allowed',
+              },
+            },
+            'Run'
+          )
+        ),
+        // Command history dropdown
+        showHistory && commandHistory.length > 0 &&
+          React.createElement(
+            'div',
+            {
+              style: {
+                marginTop: '4px',
+                border: '1px solid #e5e7eb',
+                borderRadius: '6px',
+                backgroundColor: '#fff',
+                maxHeight: '150px',
+                overflow: 'auto',
+              },
+            },
+            commandHistory.slice(0, 10).map((cmd, index) =>
+              React.createElement(
+                'div',
+                {
+                  key: index,
+                  onClick: () => this.handleSelectFromHistory(cmd),
+                  style: {
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    fontFamily: 'Monaco, Menlo, monospace',
+                    cursor: 'pointer',
+                    borderBottom: index < commandHistory.length - 1 ? '1px solid #f0f0f0' : 'none',
+                  },
+                  onMouseOver: (e: React.MouseEvent<HTMLDivElement>) => {
+                    e.currentTarget.style.backgroundColor = '#f8f9fa';
+                  },
+                  onMouseOut: (e: React.MouseEvent<HTMLDivElement>) => {
+                    e.currentTarget.style.backgroundColor = '#fff';
+                  },
+                },
+                cmd
+              )
+            )
+          )
+      ),
+
+      // Log Viewer Section
+      React.createElement(
+        'div',
+        {
+          style: {
+            borderTop: '1px solid #e5e7eb',
+          },
+        },
+        React.createElement(
+          'div',
+          {
+            onClick: this.handleToggleLogs,
+            style: {
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+            },
+          },
+          React.createElement(
+            'h4',
+            {
+              style: {
+                margin: 0,
+                fontSize: '12px',
+                fontWeight: 500,
+                color: '#666',
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.5px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              },
+            },
+            React.createElement('span', {}, showLogs ? '▼' : '▶'),
+            'View Logs'
+          ),
+          React.createElement(
+            'button',
+            {
+              onClick: (e: React.MouseEvent) => {
+                e.stopPropagation();
+                this.fetchLogs();
+              },
+              disabled: isLoadingLogs,
+              style: {
+                padding: '4px 8px',
+                fontSize: '11px',
+                color: '#666',
+                backgroundColor: '#f8f9fa',
+                border: '1px solid #e5e7eb',
+                borderRadius: '4px',
+                cursor: 'pointer',
+              },
+            },
+            isLoadingLogs ? 'Loading...' : 'Refresh'
+          )
+        ),
+        showLogs &&
+          React.createElement(
+            'div',
+            {
+              style: {
+                padding: '0 20px 16px 20px',
+              },
+            },
+            React.createElement(
+              'pre',
+              {
+                style: {
+                  margin: 0,
+                  padding: '12px',
+                  fontSize: '11px',
+                  fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
+                  backgroundColor: '#1a1a1a',
+                  color: '#e5e7eb',
+                  borderRadius: '6px',
+                  maxHeight: '300px',
+                  overflow: 'auto',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                },
+              },
+              logs || 'No logs available'
+            )
+          )
+      ),
+
+      // .env Editor Section
+      React.createElement(
+        'div',
+        {
+          style: {
+            borderTop: '1px solid #e5e7eb',
+          },
+        },
+        React.createElement(
+          'div',
+          {
+            onClick: this.handleToggleEnvEditor,
+            style: {
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+            },
+          },
+          React.createElement(
+            'h4',
+            {
+              style: {
+                margin: 0,
+                fontSize: '12px',
+                fontWeight: 500,
+                color: '#666',
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.5px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              },
+            },
+            React.createElement('span', {}, showEnvEditor ? '▼' : '▶'),
+            'Edit .env'
+          ),
+          showEnvEditor &&
+            React.createElement(
+              'button',
+              {
+                onClick: (e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  this.handleSaveEnv();
+                },
+                disabled: isSavingEnv || isLoadingEnv,
+                style: {
+                  padding: '4px 12px',
+                  fontSize: '11px',
+                  color: '#fff',
+                  backgroundColor: isSavingEnv ? '#ccc' : '#f55247',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: isSavingEnv ? 'not-allowed' : 'pointer',
+                },
+              },
+              isSavingEnv ? 'Saving...' : 'Save'
+            )
+        ),
+        showEnvEditor &&
+          React.createElement(
+            'div',
+            {
+              style: {
+                padding: '0 20px 16px 20px',
+              },
+            },
+            isLoadingEnv
+              ? React.createElement(
+                  'div',
+                  { style: { padding: '20px', textAlign: 'center' as const, color: '#666' } },
+                  'Loading .env...'
+                )
+              : React.createElement('textarea', {
+                  value: envRaw,
+                  onChange: this.handleEnvRawChange,
+                  style: {
+                    width: '100%',
+                    minHeight: '200px',
+                    padding: '12px',
+                    fontSize: '12px',
+                    fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '6px',
+                    resize: 'vertical' as const,
+                    outline: 'none',
+                  },
+                })
+          )
       ),
 
       // Output Section (conditional)

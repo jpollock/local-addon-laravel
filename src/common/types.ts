@@ -315,3 +315,60 @@ export interface IpcResponse<T = unknown> {
   data?: T;
   error?: string;
 }
+
+/**
+ * Request to get Laravel logs.
+ */
+export interface GetLogsRequest {
+  /** Site ID */
+  siteId: string;
+
+  /** Number of lines to fetch (default: 100) */
+  lines?: number;
+}
+
+/**
+ * Response from get Laravel logs.
+ */
+export interface GetLogsResponse {
+  success: boolean;
+  logs?: string;
+  error?: string;
+}
+
+/**
+ * Request to get .env file.
+ */
+export interface GetEnvRequest {
+  /** Site ID */
+  siteId: string;
+}
+
+/**
+ * Response from get .env file.
+ */
+export interface GetEnvResponse {
+  success: boolean;
+  variables?: EnvVariable[];
+  raw?: string;
+  error?: string;
+}
+
+/**
+ * Request to update .env file.
+ */
+export interface UpdateEnvRequest {
+  /** Site ID */
+  siteId: string;
+
+  /** New .env content */
+  content: string;
+}
+
+/**
+ * Response from update .env file.
+ */
+export interface UpdateEnvResponse {
+  success: boolean;
+  error?: string;
+}

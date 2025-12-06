@@ -9,6 +9,7 @@ import * as LocalMain from '@getflywheel/local/main';
 import { ipcMain, BrowserWindow } from 'electron';
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs-extra';
 
 // Import modules
 import {
@@ -27,6 +28,10 @@ import type {
   ArtisanRequest,
   LaravelVersion,
   StarterKit,
+  GetLogsRequest,
+  GetEnvRequest,
+  UpdateEnvRequest,
+  EnvVariable,
 } from '../common/types';
 
 /**
@@ -342,6 +347,118 @@ function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
       return { success: true, status: status || 'stopped' };
     } catch (error: any) {
       return { success: false, status: 'unknown', error: error.message };
+    }
+  });
+
+  // Handler: Get Laravel logs
+  ipcMain.handle(IPC_CHANNELS.GET_LARAVEL_LOGS, async (_event, data: GetLogsRequest) => {
+    try {
+      const site = siteData.getSite(data.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      const sitePath = site.path.startsWith('~')
+        ? site.path.replace('~', os.homedir())
+        : site.path;
+      const logPath = path.join(sitePath, 'app', 'storage', 'logs', 'laravel.log');
+
+      // Check if log file exists
+      if (!await fs.pathExists(logPath)) {
+        return { success: true, logs: '(No log file found. Run your application to generate logs.)' };
+      }
+
+      // Read the log file
+      const content = await fs.readFile(logPath, 'utf-8');
+
+      // Get last N lines (default 100)
+      const lines = content.split('\n');
+      const numLines = data.lines || 100;
+      const lastLines = lines.slice(-numLines).join('\n');
+
+      return { success: true, logs: lastLines };
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] GET_LARAVEL_LOGS error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Get .env file
+  ipcMain.handle(IPC_CHANNELS.GET_ENV, async (_event, data: GetEnvRequest) => {
+    try {
+      const site = siteData.getSite(data.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      const sitePath = site.path.startsWith('~')
+        ? site.path.replace('~', os.homedir())
+        : site.path;
+      const envPath = path.join(sitePath, 'app', '.env');
+
+      // Check if .env file exists
+      if (!await fs.pathExists(envPath)) {
+        return { success: false, error: '.env file not found' };
+      }
+
+      // Read the .env file
+      const content = await fs.readFile(envPath, 'utf-8');
+
+      // Parse into key-value pairs
+      const variables: EnvVariable[] = content.split('\n')
+        .filter(line => line.trim() && !line.trim().startsWith('#') && line.includes('='))
+        .map(line => {
+          const eqIndex = line.indexOf('=');
+          const key = line.substring(0, eqIndex).trim();
+          let value = line.substring(eqIndex + 1).trim();
+
+          // Remove surrounding quotes if present
+          if ((value.startsWith('"') && value.endsWith('"')) ||
+              (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1);
+          }
+
+          // Mark sensitive keys
+          const sensitiveKeys = ['PASSWORD', 'SECRET', 'KEY', 'TOKEN', 'MAIL_PASSWORD', 'AWS_SECRET'];
+          const sensitive = sensitiveKeys.some(sk => key.toUpperCase().includes(sk));
+
+          return { key, value, sensitive };
+        });
+
+      return { success: true, variables, raw: content };
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] GET_ENV error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Update .env file
+  ipcMain.handle(IPC_CHANNELS.UPDATE_ENV, async (_event, data: UpdateEnvRequest) => {
+    try {
+      const site = siteData.getSite(data.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      const sitePath = site.path.startsWith('~')
+        ? site.path.replace('~', os.homedir())
+        : site.path;
+      const envPath = path.join(sitePath, 'app', '.env');
+
+      // Backup existing .env file
+      const backupPath = path.join(sitePath, 'app', '.env.backup');
+      if (await fs.pathExists(envPath)) {
+        await fs.copy(envPath, backupPath);
+      }
+
+      // Write new content
+      await fs.writeFile(envPath, data.content, 'utf-8');
+
+      localLogger.info(`[LocalLaravel] Updated .env file for site ${site.name}`);
+      return { success: true };
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] UPDATE_ENV error:', error);
+      return { success: false, error: error.message };
     }
   });
 

@@ -31,6 +31,9 @@ export const IPC_CHANNELS = {
   // Environment management
   GET_ENV: 'local-laravel:get-env',
   UPDATE_ENV: 'local-laravel:update-env',
+
+  // Log viewer
+  GET_LARAVEL_LOGS: 'local-laravel:get-logs',
 } as const;
 
 /**
