@@ -36,6 +36,17 @@ import type {
 const pendingInstallations = new Map<string, CreateLaravelSiteRequest>();
 
 /**
+ * Map of creation progress by site ID.
+ * Used for polling progress from renderer.
+ */
+const creationProgress = new Map<string, {
+  progress: number;
+  stage: string;
+  message: string;
+  error?: string;
+}>();
+
+/**
  * Main addon entry function.
  *
  * Called by Local when the addon is loaded.
@@ -129,6 +140,13 @@ function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
       });
 
       localLogger.info('[LocalLaravel] Site created:', site.id);
+
+      // Initialize progress tracking
+      creationProgress.set(site.id, {
+        progress: 15,
+        stage: 'PROVISIONING',
+        message: 'Site infrastructure provisioned...',
+      });
 
       // Update pending installation with site ID
       const installConfig = pendingInstallations.get(data.siteName);
@@ -259,6 +277,19 @@ function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
     }
   });
 
+  // Handler: Get creation status
+  ipcMain.handle(IPC_CHANNELS.GET_CREATION_STATUS, async (_event, data: { siteId: string }) => {
+    try {
+      const progress = creationProgress.get(data.siteId);
+      if (!progress) {
+        return { progress: 0, stage: 'initializing', message: 'Initializing...' };
+      }
+      return progress;
+    } catch (error: any) {
+      return { progress: 0, stage: 'error', message: error.message, error: error.message };
+    }
+  });
+
   localLogger.info('[LocalLaravel] IPC handlers registered');
 }
 
@@ -373,9 +404,18 @@ function registerLifecycleHooks(context: LocalMain.AddonMainContext): void {
 }
 
 /**
- * Broadcast progress to all renderer windows.
+ * Broadcast progress to all renderer windows and store for polling.
  */
 function broadcastProgress(siteId: string, progress: any): void {
+  // Store progress for polling
+  creationProgress.set(siteId, {
+    progress: progress.progress,
+    stage: progress.stage,
+    message: progress.message,
+    error: progress.error,
+  });
+
+  // Broadcast to all windows
   const windows = BrowserWindow.getAllWindows();
 
   for (const window of windows) {
@@ -385,5 +425,12 @@ function broadcastProgress(siteId: string, progress: any): void {
         ...progress,
       });
     }
+  }
+
+  // Clean up completed/errored progress after a delay
+  if (progress.progress >= 100 || progress.error) {
+    setTimeout(() => {
+      creationProgress.delete(siteId);
+    }, 30000); // Keep for 30 seconds after completion
   }
 }
