@@ -1,8 +1,13 @@
 /**
- * Composer Manager
+ * Composer Manager (SECURED)
  *
  * Handles all Composer operations for Laravel projects.
  * Uses the bundled composer.phar and Local's PHP runtime.
+ *
+ * Security measures:
+ * - Uses spawn with shell: false instead of exec (no shell injection)
+ * - Validates all paths using security utilities
+ * - Uses array arguments instead of string commands
  *
  * Design decisions:
  * - Bundle composer.phar with the addon (~3MB) for reliability
@@ -13,14 +18,13 @@
 
 import * as path from 'path';
 import * as fs from 'fs-extra';
-import { exec, ExecOptions } from 'child_process';
-import { promisify } from 'util';
+import { spawn, SpawnOptions } from 'child_process';
 import * as LocalMain from '@getflywheel/local/main';
 import * as os from 'os';
 
 import type { ComposerResult, LocalSite } from '../common/types';
-
-const execAsync = promisify(exec);
+import { resolveSitePath, isPathWithinSite } from '../common/security';
+import { containsShellMetacharacters } from '../common/validation';
 
 /**
  * Environment variables for Composer execution.
@@ -189,25 +193,29 @@ export class ComposerManager {
   }
 
   /**
-   * Build the Composer command with PHP path.
+   * Build the Composer command arguments for spawn.
+   * Returns array of arguments: [composerPath, ...args]
+   *
+   * SECURITY: Uses array arguments, not string interpolation.
    */
-  private buildCommand(phpPath: string, args: string[]): string {
-    // Escape paths for shell
-    const escapedPhp = this.escapePath(phpPath);
-    const escapedComposer = this.escapePath(this.composerPath);
-
-    return `${escapedPhp} ${escapedComposer} ${args.join(' ')}`;
+  private buildArgs(args: string[]): string[] {
+    return [this.composerPath, ...args];
   }
 
   /**
-   * Escape a path for shell execution.
+   * Validate arguments don't contain shell metacharacters.
+   *
+   * SECURITY: Prevents command injection via arguments.
    */
-  private escapePath(filePath: string): string {
-    // Handle spaces and special characters
-    if (process.platform === 'win32') {
-      return `"${filePath}"`;
+  private validateArgs(args: string[]): boolean {
+    for (const arg of args) {
+      // Allow paths with spaces but reject shell metacharacters
+      if (containsShellMetacharacters(arg)) {
+        this.logger.error('[ComposerManager] Dangerous characters in argument:', arg);
+        return false;
+      }
     }
-    return filePath.replace(/ /g, '\\ ');
+    return true;
   }
 
   /**
@@ -226,7 +234,9 @@ export class ComposerManager {
   }
 
   /**
-   * Run a Composer command.
+   * Run a Composer command (SECURED).
+   *
+   * SECURITY: Uses spawn with shell: false and array arguments.
    *
    * @param args - Command arguments (e.g., ['install', '--no-dev'])
    * @param options - Execution options
@@ -235,14 +245,22 @@ export class ComposerManager {
   async run(args: string[], options: ComposerRunOptions): Promise<ComposerResult> {
     const startTime = Date.now();
 
-    // For actual PHP execution, we need a real PHP binary
-    // Use 'php' from PATH as fallback
-    const command = `php ${this.escapePath(this.composerPath)} ${args.join(' ')}`;
+    // Validate arguments don't contain injection characters
+    if (!this.validateArgs(args)) {
+      return {
+        success: false,
+        output: 'Invalid arguments: contains dangerous characters',
+        exitCode: 1,
+        duration: Date.now() - startTime,
+      };
+    }
 
-    const execOptions: ExecOptions = {
+    // Build array of arguments for spawn (no shell interpolation)
+    const spawnArgs = this.buildArgs(args);
+
+    const spawnOptions: SpawnOptions = {
       cwd: options.cwd,
-      timeout: options.timeout || 5 * 60 * 1000, // 5 minutes default
-      maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large outputs
+      shell: false, // CRITICAL: Don't use shell to prevent injection
       env: {
         ...process.env,
         ...this.getDefaultEnv(),
@@ -251,43 +269,73 @@ export class ComposerManager {
     };
 
     if (!options.quiet) {
-      this.logger.info('[ComposerManager] Running:', command);
+      this.logger.info('[ComposerManager] Running: php', spawnArgs.join(' '));
       this.logger.info('[ComposerManager] In directory:', options.cwd);
     }
 
-    try {
-      const { stdout, stderr } = await execAsync(command, execOptions);
-      const duration = Date.now() - startTime;
+    return new Promise((resolve) => {
+      const child = spawn('php', spawnArgs, spawnOptions);
 
-      const output = stdout + (stderr ? `\n${stderr}` : '');
+      let stdout = '';
+      let stderr = '';
 
-      if (!options.quiet) {
-        this.logger.info('[ComposerManager] Command completed in', duration, 'ms');
-      }
+      child.stdout?.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
 
-      return {
-        success: true,
-        output: output.trim(),
-        exitCode: 0,
-        duration,
-      };
-    } catch (error: any) {
-      const duration = Date.now() - startTime;
+      child.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
 
-      this.logger.error('[ComposerManager] Command failed:', error.message);
+      // Set timeout
+      const timeout = setTimeout(() => {
+        child.kill('SIGTERM');
+        const duration = Date.now() - startTime;
+        resolve({
+          success: false,
+          output: 'Command timed out',
+          exitCode: 124,
+          duration,
+        });
+      }, options.timeout || 5 * 60 * 1000);
 
-      return {
-        success: false,
-        output: error.stdout + (error.stderr ? `\n${error.stderr}` : '') || error.message,
-        exitCode: error.code || 1,
-        duration,
-      };
-    }
+      child.on('close', (code: number | null) => {
+        clearTimeout(timeout);
+        const duration = Date.now() - startTime;
+        const output = stdout + (stderr ? `\n${stderr}` : '');
+
+        if (!options.quiet) {
+          this.logger.info('[ComposerManager] Command completed in', duration, 'ms');
+        }
+
+        resolve({
+          success: code === 0,
+          output: output.trim(),
+          exitCode: code || 0,
+          duration,
+        });
+      });
+
+      child.on('error', (error: Error) => {
+        clearTimeout(timeout);
+        const duration = Date.now() - startTime;
+
+        this.logger.error('[ComposerManager] Command failed:', error.message);
+
+        resolve({
+          success: false,
+          output: error.message,
+          exitCode: 1,
+          duration,
+        });
+      });
+    });
   }
 
   /**
-   * Run a Composer command for a specific site.
+   * Run a Composer command for a specific site (SECURED).
    *
+   * SECURITY: Uses spawn with shell: false and validates paths.
    * Uses the site's configured PHP version.
    */
   async runForSite(
@@ -295,16 +343,38 @@ export class ComposerManager {
     args: string[],
     options?: Partial<ComposerRunOptions>
   ): Promise<ComposerResult> {
-    const phpPath = this.getPhpPathFromSite(site) || 'php';
-    const command = `${this.escapePath(phpPath)} ${this.escapePath(this.composerPath)} ${args.join(' ')}`;
-
     const startTime = Date.now();
-    const cwd = options?.cwd || path.join(this.resolveSitePath(site), 'app');
 
-    const execOptions: ExecOptions = {
+    // Validate arguments don't contain injection characters
+    if (!this.validateArgs(args)) {
+      return {
+        success: false,
+        output: 'Invalid arguments: contains dangerous characters',
+        exitCode: 1,
+        duration: Date.now() - startTime,
+      };
+    }
+
+    const phpPath = this.getPhpPathFromSite(site) || 'php';
+    const spawnArgs = this.buildArgs(args);
+
+    // Resolve site path securely
+    const sitePath = resolveSitePath(site.path);
+    const cwd = options?.cwd || path.join(sitePath, 'app');
+
+    // Validate cwd is within site directory
+    if (!isPathWithinSite(sitePath, cwd)) {
+      return {
+        success: false,
+        output: 'Invalid working directory: security violation',
+        exitCode: 1,
+        duration: Date.now() - startTime,
+      };
+    }
+
+    const spawnOptions: SpawnOptions = {
       cwd,
-      timeout: options?.timeout || 5 * 60 * 1000,
-      maxBuffer: 10 * 1024 * 1024,
+      shell: false, // CRITICAL: Don't use shell to prevent injection
       env: {
         ...process.env,
         ...this.getDefaultEnv(),
@@ -313,32 +383,64 @@ export class ComposerManager {
     };
 
     this.logger.info('[ComposerManager] Running for site:', site.name);
-    this.logger.info('[ComposerManager] Command:', command);
+    this.logger.info('[ComposerManager] PHP:', phpPath);
+    this.logger.info('[ComposerManager] Args:', spawnArgs.join(' '));
 
-    try {
-      const { stdout, stderr } = await execAsync(command, execOptions);
-      const duration = Date.now() - startTime;
+    return new Promise((resolve) => {
+      const child = spawn(phpPath, spawnArgs, spawnOptions);
 
-      return {
-        success: true,
-        output: (stdout + (stderr ? `\n${stderr}` : '')).trim(),
-        exitCode: 0,
-        duration,
-      };
-    } catch (error: any) {
-      const duration = Date.now() - startTime;
+      let stdout = '';
+      let stderr = '';
 
-      return {
-        success: false,
-        output: error.stdout + (error.stderr ? `\n${error.stderr}` : '') || error.message,
-        exitCode: error.code || 1,
-        duration,
-      };
-    }
+      child.stdout?.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      child.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      const timeout = setTimeout(() => {
+        child.kill('SIGTERM');
+        const duration = Date.now() - startTime;
+        resolve({
+          success: false,
+          output: 'Command timed out',
+          exitCode: 124,
+          duration,
+        });
+      }, options?.timeout || 5 * 60 * 1000);
+
+      child.on('close', (code: number | null) => {
+        clearTimeout(timeout);
+        const duration = Date.now() - startTime;
+
+        resolve({
+          success: code === 0,
+          output: (stdout + (stderr ? `\n${stderr}` : '')).trim(),
+          exitCode: code || 0,
+          duration,
+        });
+      });
+
+      child.on('error', (error: Error) => {
+        clearTimeout(timeout);
+        const duration = Date.now() - startTime;
+
+        resolve({
+          success: false,
+          output: error.message,
+          exitCode: 1,
+          duration,
+        });
+      });
+    });
   }
 
   /**
-   * Create a new Laravel project.
+   * Create a new Laravel project (SECURED).
+   *
+   * SECURITY: Validates project path and constraint.
    *
    * @param projectPath - Directory to create the project in
    * @param laravelConstraint - Composer version constraint (e.g., 'laravel/laravel:^11.0')
@@ -347,12 +449,30 @@ export class ComposerManager {
     projectPath: string,
     laravelConstraint: string = 'laravel/laravel'
   ): Promise<ComposerResult> {
+    // Validate path doesn't contain dangerous characters
+    if (containsShellMetacharacters(projectPath)) {
+      return {
+        success: false,
+        output: 'Invalid project path: contains dangerous characters',
+        exitCode: 1,
+        duration: 0,
+      };
+    }
+
+    // Validate constraint doesn't contain injection characters
+    if (containsShellMetacharacters(laravelConstraint)) {
+      return {
+        success: false,
+        output: 'Invalid package constraint: contains dangerous characters',
+        exitCode: 1,
+        duration: 0,
+      };
+    }
+
     // Ensure parent directory exists
     await fs.ensureDir(path.dirname(projectPath));
 
-    // Create project - quote path to handle spaces (e.g., "Local Sites")
-    const quotedPath = `"${projectPath}"`;
-
+    // Create project - pass path directly (no shell quoting needed with spawn)
     return this.run(
       [
         'create-project',
@@ -360,7 +480,7 @@ export class ComposerManager {
         '--no-interaction',
         '--ignore-platform-reqs',  // Use Local's PHP version, not system PHP
         laravelConstraint,
-        quotedPath,
+        projectPath,  // spawn handles spaces correctly
       ],
       { cwd: path.dirname(projectPath) }
     );
@@ -423,15 +543,6 @@ export class ComposerManager {
     return this.run(args, { cwd: projectPath });
   }
 
-  /**
-   * Resolve site path (handle ~ prefix).
-   */
-  private resolveSitePath(site: LocalSite): string {
-    if (site.path.startsWith('~')) {
-      return site.path.replace('~', os.homedir());
-    }
-    return site.path;
-  }
 }
 
 // Export singleton instance for convenience

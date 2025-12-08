@@ -25,17 +25,32 @@ import { composerManager } from './composer-manager';
 import { laravelInstaller } from './laravel-installer';
 import type {
   CreateLaravelSiteRequest,
-  ArtisanRequest,
   LaravelVersion,
   StarterKit,
-  GetLogsRequest,
-  GetEnvRequest,
-  UpdateEnvRequest,
   EnvVariable,
-  GetFailedJobsRequest,
-  QueueJobRequest,
   FailedJob,
 } from '../common/types';
+import {
+  CreateSiteRequestSchema,
+  ArtisanRequestSchema,
+  QueueJobRequestSchema,
+  GetLogsRequestSchema,
+  GetEnvRequestSchema,
+  UpdateEnvRequestSchema,
+  SiteIdRequestSchema,
+  GetCreationStatusRequestSchema,
+  safeValidateInput,
+} from '../common/validation';
+import {
+  resolveSitePath,
+  getSafeAppPath,
+  getSafePathInApp,
+  isPathWithinSite,
+  sanitizeForLogging,
+  buildArtisanArgs,
+  buildVSCodeCommand,
+  buildTerminalCommand,
+} from '../common/security';
 
 /**
  * Map of pending Laravel installations.
@@ -137,7 +152,7 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
         },
       };
 
-      localLogger.info('[LocalLaravel] Creating site with options:', JSON.stringify(newSiteInfo, null, 2));
+      localLogger.info('[LocalLaravel] Creating site with options:', JSON.stringify(sanitizeForLogging(newSiteInfo), null, 2));
 
       // Create the site
       localLogger.info('[LocalLaravel] Calling addSiteService.addSite...');
@@ -149,7 +164,7 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
       });
 
       localLogger.info(`[LocalLaravel] Site created: ${site.id}`);
-      localLogger.info(`[LocalLaravel] Site customOptions after creation: ${JSON.stringify(site.customOptions)}`);
+      localLogger.info(`[LocalLaravel] Site customOptions after creation: ${JSON.stringify(sanitizeForLogging(site.customOptions))}`);
 
       // Manually set customOptions on the site since filters don't seem to work
       const customOptions = {
@@ -160,13 +175,13 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
         createdAt: new Date().toISOString(),
       };
 
-      localLogger.info(`[LocalLaravel] Updating site with customOptions: ${JSON.stringify(customOptions)}`);
+      localLogger.info(`[LocalLaravel] Updating site with customOptions: ${JSON.stringify(sanitizeForLogging(customOptions))}`);
 
       // Update the site with customOptions
       site.customOptions = customOptions;
       await siteData.updateSite(site.id, { customOptions });
 
-      localLogger.info(`[LocalLaravel] Site customOptions after update: ${JSON.stringify(site.customOptions)}`);
+      localLogger.info(`[LocalLaravel] Site customOptions after update: ${JSON.stringify(sanitizeForLogging(site.customOptions))}`);
 
       // Initialize progress tracking
       creationProgress.set(site.id, {
@@ -263,12 +278,28 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
     }
   });
 
-  // Handler: Run artisan command
-  ipcMain.handle(IPC_CHANNELS.RUN_ARTISAN, async (_event, data: ArtisanRequest) => {
+  // Handler: Run artisan command (SECURED)
+  ipcMain.handle(IPC_CHANNELS.RUN_ARTISAN, async (_event, data: unknown) => {
     const startTime = Date.now();
 
+    // Validate input with Zod schema
+    const validation = safeValidateInput(ArtisanRequestSchema, data);
+    if (!validation.success) {
+      return {
+        success: false,
+        data: {
+          success: false,
+          output: `Validation error: ${validation.error}`,
+          exitCode: 1,
+          duration: Date.now() - startTime,
+        },
+      };
+    }
+
+    const validatedData = validation.data!;
+
     try {
-      const site = siteData.getSite(data.siteId);
+      const site = siteData.getSite(validatedData.siteId);
       if (!site) {
         throw new Error('Site not found');
       }
@@ -279,39 +310,83 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
         throw new Error('Site must be running to execute artisan commands');
       }
 
-      const sitePath = site.path.startsWith('~')
-        ? site.path.replace('~', os.homedir())
-        : site.path;
-      const appPath = path.join(sitePath, 'app');
+      // Use secure path resolution
+      const appPath = getSafeAppPath(site.path);
 
-      const { exec } = require('child_process');
-      const { promisify } = require('util');
-      const execAsync = promisify(exec);
+      // Use spawn with array arguments (no shell injection possible)
+      const { spawn } = require('child_process');
 
-      const command = `php artisan ${data.command.join(' ')}`;
+      // Build safe artisan arguments
+      const args = buildArtisanArgs(validatedData.command);
 
-      localLogger.info('[LocalLaravel] Running artisan:', command);
+      localLogger.info('[LocalLaravel] Running artisan (secure):', args.join(' '));
 
-      const { stdout, stderr } = await execAsync(command, {
-        cwd: appPath,
-        timeout: 120000, // 2 minute timeout
-        env: {
-          ...process.env,
-          PATH: process.env.PATH,
-        },
+      return new Promise((resolve) => {
+        const child = spawn('php', args, {
+          cwd: appPath,
+          shell: false, // CRITICAL: Don't use shell to prevent injection
+          env: {
+            ...process.env,
+            PATH: process.env.PATH,
+          },
+        });
+
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout.on('data', (data: Buffer) => {
+          stdout += data.toString();
+        });
+
+        child.stderr.on('data', (data: Buffer) => {
+          stderr += data.toString();
+        });
+
+        // Set timeout
+        const timeout = setTimeout(() => {
+          child.kill('SIGTERM');
+          const duration = Date.now() - startTime;
+          resolve({
+            success: false,
+            data: {
+              success: false,
+              output: 'Command timed out after 2 minutes',
+              exitCode: 124,
+              duration,
+            },
+          });
+        }, 120000);
+
+        child.on('close', (code: number) => {
+          clearTimeout(timeout);
+          const duration = Date.now() - startTime;
+
+          resolve({
+            success: code === 0,
+            data: {
+              success: code === 0,
+              output: stdout + (stderr ? `\n${stderr}` : ''),
+              exitCode: code || 0,
+              duration,
+            },
+          });
+        });
+
+        child.on('error', (error: Error) => {
+          clearTimeout(timeout);
+          const duration = Date.now() - startTime;
+
+          resolve({
+            success: false,
+            data: {
+              success: false,
+              output: error.message,
+              exitCode: 1,
+              duration,
+            },
+          });
+        });
       });
-
-      const duration = Date.now() - startTime;
-
-      return {
-        success: true,
-        data: {
-          success: true,
-          output: stdout + (stderr ? `\n${stderr}` : ''),
-          exitCode: 0,
-          duration,
-        },
-      };
     } catch (error: any) {
       const duration = Date.now() - startTime;
 
@@ -319,8 +394,8 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
         success: false,
         data: {
           success: false,
-          output: error.stdout || error.message,
-          exitCode: error.code || 1,
+          output: error.message,
+          exitCode: 1,
           duration,
         },
       };
@@ -365,18 +440,24 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
     }
   });
 
-  // Handler: Get Laravel logs
-  ipcMain.handle(IPC_CHANNELS.GET_LARAVEL_LOGS, async (_event, data: GetLogsRequest) => {
+  // Handler: Get Laravel logs (SECURED)
+  ipcMain.handle(IPC_CHANNELS.GET_LARAVEL_LOGS, async (_event, data: unknown) => {
+    // Validate input
+    const validation = safeValidateInput(GetLogsRequestSchema, data);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    const validatedData = validation.data!;
+
     try {
-      const site = siteData.getSite(data.siteId);
+      const site = siteData.getSite(validatedData.siteId);
       if (!site) {
         return { success: false, error: 'Site not found' };
       }
 
-      const sitePath = site.path.startsWith('~')
-        ? site.path.replace('~', os.homedir())
-        : site.path;
-      const logPath = path.join(sitePath, 'app', 'storage', 'logs', 'laravel.log');
+      // Use secure path resolution with traversal protection
+      const logPath = getSafePathInApp(site.path, 'storage', 'logs', 'laravel.log');
 
       // Check if log file exists
       if (!await fs.pathExists(logPath)) {
@@ -388,28 +469,34 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
 
       // Get last N lines (default 100)
       const lines = content.split('\n');
-      const numLines = data.lines || 100;
+      const numLines = validatedData.lines || 100;
       const lastLines = lines.slice(-numLines).join('\n');
 
       return { success: true, logs: lastLines };
     } catch (error: any) {
-      localLogger.error('[LocalLaravel] GET_LARAVEL_LOGS error:', error);
+      localLogger.error('[LocalLaravel] GET_LARAVEL_LOGS error:', error.message);
       return { success: false, error: error.message };
     }
   });
 
-  // Handler: Get .env file
-  ipcMain.handle(IPC_CHANNELS.GET_ENV, async (_event, data: GetEnvRequest) => {
+  // Handler: Get .env file (SECURED)
+  ipcMain.handle(IPC_CHANNELS.GET_ENV, async (_event, data: unknown) => {
+    // Validate input
+    const validation = safeValidateInput(GetEnvRequestSchema, data);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    const validatedData = validation.data!;
+
     try {
-      const site = siteData.getSite(data.siteId);
+      const site = siteData.getSite(validatedData.siteId);
       if (!site) {
         return { success: false, error: 'Site not found' };
       }
 
-      const sitePath = site.path.startsWith('~')
-        ? site.path.replace('~', os.homedir())
-        : site.path;
-      const envPath = path.join(sitePath, 'app', '.env');
+      // Use secure path resolution
+      const envPath = getSafePathInApp(site.path, '.env');
 
       // Check if .env file exists
       if (!await fs.pathExists(envPath)) {
@@ -442,45 +529,64 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
 
       return { success: true, variables, raw: content };
     } catch (error: any) {
-      localLogger.error('[LocalLaravel] GET_ENV error:', error);
+      localLogger.error('[LocalLaravel] GET_ENV error:', error.message);
       return { success: false, error: error.message };
     }
   });
 
-  // Handler: Update .env file
-  ipcMain.handle(IPC_CHANNELS.UPDATE_ENV, async (_event, data: UpdateEnvRequest) => {
+  // Handler: Update .env file (SECURED)
+  ipcMain.handle(IPC_CHANNELS.UPDATE_ENV, async (_event, data: unknown) => {
+    // Validate input including .env content format
+    const validation = safeValidateInput(UpdateEnvRequestSchema, data);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    const validatedData = validation.data!;
+
     try {
-      const site = siteData.getSite(data.siteId);
+      const site = siteData.getSite(validatedData.siteId);
       if (!site) {
         return { success: false, error: 'Site not found' };
       }
 
-      const sitePath = site.path.startsWith('~')
-        ? site.path.replace('~', os.homedir())
-        : site.path;
-      const envPath = path.join(sitePath, 'app', '.env');
+      // Use secure path resolution
+      const envPath = getSafePathInApp(site.path, '.env');
+      const backupPath = getSafePathInApp(site.path, '.env.backup');
+
+      // Validate paths are within the site directory
+      if (!isPathWithinSite(site.path, envPath) || !isPathWithinSite(site.path, backupPath)) {
+        return { success: false, error: 'Invalid path: security violation' };
+      }
 
       // Backup existing .env file
-      const backupPath = path.join(sitePath, 'app', '.env.backup');
       if (await fs.pathExists(envPath)) {
         await fs.copy(envPath, backupPath);
       }
 
-      // Write new content
-      await fs.writeFile(envPath, data.content, 'utf-8');
+      // Write new content (already validated by schema)
+      await fs.writeFile(envPath, validatedData.content, 'utf-8');
 
       localLogger.info(`[LocalLaravel] Updated .env file for site ${site.name}`);
       return { success: true };
     } catch (error: any) {
-      localLogger.error('[LocalLaravel] UPDATE_ENV error:', error);
+      localLogger.error('[LocalLaravel] UPDATE_ENV error:', error.message);
       return { success: false, error: error.message };
     }
   });
 
-  // Handler: Get failed jobs
-  ipcMain.handle(IPC_CHANNELS.GET_FAILED_JOBS, async (_event, data: GetFailedJobsRequest) => {
+  // Handler: Get failed jobs (SECURED)
+  ipcMain.handle(IPC_CHANNELS.GET_FAILED_JOBS, async (_event, data: unknown) => {
+    // Validate input
+    const validation = safeValidateInput(SiteIdRequestSchema, data);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    const validatedData = validation.data!;
+
     try {
-      const site = siteData.getSite(data.siteId);
+      const site = siteData.getSite(validatedData.siteId);
       if (!site) {
         return { success: false, error: 'Site not found' };
       }
@@ -491,182 +597,301 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
         return { success: false, error: 'Site must be running to view queue' };
       }
 
-      const sitePath = site.path.startsWith('~')
-        ? site.path.replace('~', os.homedir())
-        : site.path;
-      const appPath = path.join(sitePath, 'app');
+      // Use secure path resolution
+      const appPath = getSafeAppPath(site.path);
 
-      const { exec } = require('child_process');
-      const { promisify } = require('util');
-      const execAsync = promisify(exec);
-
-      const { stdout } = await execAsync('php artisan queue:failed', {
-        cwd: appPath,
-        timeout: 30000,
-      });
-
-      // Parse the table output from queue:failed
-      const jobs = parseQueueFailedOutput(stdout);
-
-      return { success: true, jobs };
-    } catch (error: any) {
-      // If no failed jobs table exists, return empty array
-      if (error.message?.includes('No failed jobs') || error.stdout?.includes('No failed jobs')) {
-        return { success: true, jobs: [] };
-      }
-      localLogger.error('[LocalLaravel] GET_FAILED_JOBS error:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Handler: Retry a failed job
-  ipcMain.handle(IPC_CHANNELS.RETRY_JOB, async (_event, data: QueueJobRequest) => {
-    try {
-      const site = siteData.getSite(data.siteId);
-      if (!site) {
-        return { success: false, error: 'Site not found' };
-      }
-
-      const status = siteProcessManager.getSiteStatus(site);
-      if (status !== 'running') {
-        return { success: false, error: 'Site must be running' };
-      }
-
-      const sitePath = site.path.startsWith('~')
-        ? site.path.replace('~', os.homedir())
-        : site.path;
-      const appPath = path.join(sitePath, 'app');
-
-      const { exec } = require('child_process');
-      const { promisify } = require('util');
-      const execAsync = promisify(exec);
-
-      // Handle "all" or specific job ID
-      const jobArg = data.jobId === 'all' ? 'all' : data.jobId;
-      await execAsync(`php artisan queue:retry ${jobArg}`, {
-        cwd: appPath,
-        timeout: 30000,
-      });
-
-      localLogger.info(`[LocalLaravel] Retried job(s): ${jobArg}`);
-      return { success: true, message: `Job ${jobArg} pushed back to queue` };
-    } catch (error: any) {
-      localLogger.error('[LocalLaravel] RETRY_JOB error:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Handler: Forget (delete) a failed job
-  ipcMain.handle(IPC_CHANNELS.FORGET_JOB, async (_event, data: QueueJobRequest) => {
-    try {
-      const site = siteData.getSite(data.siteId);
-      if (!site) {
-        return { success: false, error: 'Site not found' };
-      }
-
-      const status = siteProcessManager.getSiteStatus(site);
-      if (status !== 'running') {
-        return { success: false, error: 'Site must be running' };
-      }
-
-      const sitePath = site.path.startsWith('~')
-        ? site.path.replace('~', os.homedir())
-        : site.path;
-      const appPath = path.join(sitePath, 'app');
-
-      const { exec } = require('child_process');
-      const { promisify } = require('util');
-      const execAsync = promisify(exec);
-
-      await execAsync(`php artisan queue:forget ${data.jobId}`, {
-        cwd: appPath,
-        timeout: 30000,
-      });
-
-      localLogger.info(`[LocalLaravel] Deleted failed job: ${data.jobId}`);
-      return { success: true, message: 'Job deleted' };
-    } catch (error: any) {
-      localLogger.error('[LocalLaravel] FORGET_JOB error:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Handler: Flush all failed jobs
-  ipcMain.handle(IPC_CHANNELS.FLUSH_JOBS, async (_event, data: { siteId: string }) => {
-    try {
-      const site = siteData.getSite(data.siteId);
-      if (!site) {
-        return { success: false, error: 'Site not found' };
-      }
-
-      const status = siteProcessManager.getSiteStatus(site);
-      if (status !== 'running') {
-        return { success: false, error: 'Site must be running' };
-      }
-
-      const sitePath = site.path.startsWith('~')
-        ? site.path.replace('~', os.homedir())
-        : site.path;
-      const appPath = path.join(sitePath, 'app');
-
-      const { exec } = require('child_process');
-      const { promisify } = require('util');
-      const execAsync = promisify(exec);
-
-      await execAsync('php artisan queue:flush', {
-        cwd: appPath,
-        timeout: 30000,
-      });
-
-      localLogger.info(`[LocalLaravel] Flushed all failed jobs for ${site.name}`);
-      return { success: true, message: 'All failed jobs deleted' };
-    } catch (error: any) {
-      localLogger.error('[LocalLaravel] FLUSH_JOBS error:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Handler: Open site in VS Code (opens /app instead of /app/public)
-  ipcMain.handle(IPC_CHANNELS.OPEN_IN_VSCODE, async (_event, data: { siteId: string }) => {
-    try {
-      const site = siteData.getSite(data.siteId);
-      if (!site) {
-        return { success: false, error: 'Site not found' };
-      }
-
-      // Resolve the Laravel project path (app/ not app/public)
-      let projectPath = site.path;
-      if (projectPath.startsWith('~')) {
-        projectPath = path.join(os.homedir(), projectPath.slice(2));
-      }
-      projectPath = path.join(projectPath, 'app'); // Laravel root
-
-      // Platform-specific VS Code command
-      let command: string;
-      switch (process.platform) {
-        case 'win32':
-          command = `code -n "${projectPath}"`;
-          break;
-        case 'darwin':
-          command = `open -n -b "com.microsoft.VSCode" --args "${projectPath}"`;
-          break;
-        default: // linux
-          command = `code -n "${projectPath}"`;
-          break;
-      }
-
-      const { exec } = require('child_process');
+      // Use spawn instead of exec (no shell injection possible)
+      const { spawn } = require('child_process');
 
       return new Promise((resolve) => {
-        exec(command, (error: any) => {
-          if (error) {
-            localLogger.error(`[LocalLaravel] Failed to open VS Code: ${error.message}`);
-            resolve({ success: false, error: error.message });
+        const child = spawn('php', ['artisan', 'queue:failed'], {
+          cwd: appPath,
+          shell: false,
+        });
+
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout.on('data', (data: Buffer) => {
+          stdout += data.toString();
+        });
+
+        child.stderr.on('data', (data: Buffer) => {
+          stderr += data.toString();
+        });
+
+        const timeout = setTimeout(() => {
+          child.kill('SIGTERM');
+          resolve({ success: false, error: 'Command timed out' });
+        }, 30000);
+
+        child.on('close', (code: number) => {
+          clearTimeout(timeout);
+
+          if (stdout.includes('No failed jobs') || stderr.includes('No failed jobs')) {
+            resolve({ success: true, jobs: [] });
+            return;
+          }
+
+          if (code === 0) {
+            const jobs = parseQueueFailedOutput(stdout);
+            resolve({ success: true, jobs });
           } else {
-            localLogger.info(`[LocalLaravel] Opened VS Code for ${site.name} at ${projectPath}`);
-            resolve({ success: true });
+            resolve({ success: false, error: stderr || 'Command failed' });
           }
         });
+
+        child.on('error', (error: Error) => {
+          clearTimeout(timeout);
+          resolve({ success: false, error: error.message });
+        });
+      });
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] GET_FAILED_JOBS error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Retry a failed job (SECURED)
+  ipcMain.handle(IPC_CHANNELS.RETRY_JOB, async (_event, data: unknown) => {
+    // Validate input - jobId must be numeric or 'all'
+    const validation = safeValidateInput(QueueJobRequestSchema, data);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    const validatedData = validation.data!;
+
+    try {
+      const site = siteData.getSite(validatedData.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      const status = siteProcessManager.getSiteStatus(site);
+      if (status !== 'running') {
+        return { success: false, error: 'Site must be running' };
+      }
+
+      const appPath = getSafeAppPath(site.path);
+
+      // Use spawn with validated jobId (no injection possible)
+      const { spawn } = require('child_process');
+
+      return new Promise((resolve) => {
+        const child = spawn('php', ['artisan', 'queue:retry', validatedData.jobId], {
+          cwd: appPath,
+          shell: false,
+        });
+
+        let stderr = '';
+
+        child.stderr.on('data', (data: Buffer) => {
+          stderr += data.toString();
+        });
+
+        const timeout = setTimeout(() => {
+          child.kill('SIGTERM');
+          resolve({ success: false, error: 'Command timed out' });
+        }, 30000);
+
+        child.on('close', (code: number) => {
+          clearTimeout(timeout);
+
+          if (code === 0) {
+            localLogger.info(`[LocalLaravel] Retried job(s): ${validatedData.jobId}`);
+            resolve({ success: true, message: `Job ${validatedData.jobId} pushed back to queue` });
+          } else {
+            resolve({ success: false, error: stderr || 'Command failed' });
+          }
+        });
+
+        child.on('error', (error: Error) => {
+          clearTimeout(timeout);
+          resolve({ success: false, error: error.message });
+        });
+      });
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] RETRY_JOB error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Forget (delete) a failed job (SECURED)
+  ipcMain.handle(IPC_CHANNELS.FORGET_JOB, async (_event, data: unknown) => {
+    // Validate input
+    const validation = safeValidateInput(QueueJobRequestSchema, data);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    const validatedData = validation.data!;
+
+    try {
+      const site = siteData.getSite(validatedData.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      const status = siteProcessManager.getSiteStatus(site);
+      if (status !== 'running') {
+        return { success: false, error: 'Site must be running' };
+      }
+
+      const appPath = getSafeAppPath(site.path);
+
+      const { spawn } = require('child_process');
+
+      return new Promise((resolve) => {
+        const child = spawn('php', ['artisan', 'queue:forget', validatedData.jobId], {
+          cwd: appPath,
+          shell: false,
+        });
+
+        let stderr = '';
+
+        child.stderr.on('data', (data: Buffer) => {
+          stderr += data.toString();
+        });
+
+        const timeout = setTimeout(() => {
+          child.kill('SIGTERM');
+          resolve({ success: false, error: 'Command timed out' });
+        }, 30000);
+
+        child.on('close', (code: number) => {
+          clearTimeout(timeout);
+
+          if (code === 0) {
+            localLogger.info(`[LocalLaravel] Deleted failed job: ${validatedData.jobId}`);
+            resolve({ success: true, message: 'Job deleted' });
+          } else {
+            resolve({ success: false, error: stderr || 'Command failed' });
+          }
+        });
+
+        child.on('error', (error: Error) => {
+          clearTimeout(timeout);
+          resolve({ success: false, error: error.message });
+        });
+      });
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] FORGET_JOB error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Flush all failed jobs (SECURED)
+  ipcMain.handle(IPC_CHANNELS.FLUSH_JOBS, async (_event, data: unknown) => {
+    // Validate input
+    const validation = safeValidateInput(SiteIdRequestSchema, data);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    const validatedData = validation.data!;
+
+    try {
+      const site = siteData.getSite(validatedData.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      const status = siteProcessManager.getSiteStatus(site);
+      if (status !== 'running') {
+        return { success: false, error: 'Site must be running' };
+      }
+
+      const appPath = getSafeAppPath(site.path);
+
+      const { spawn } = require('child_process');
+
+      return new Promise((resolve) => {
+        const child = spawn('php', ['artisan', 'queue:flush'], {
+          cwd: appPath,
+          shell: false,
+        });
+
+        let stderr = '';
+
+        child.stderr.on('data', (data: Buffer) => {
+          stderr += data.toString();
+        });
+
+        const timeout = setTimeout(() => {
+          child.kill('SIGTERM');
+          resolve({ success: false, error: 'Command timed out' });
+        }, 30000);
+
+        child.on('close', (code: number) => {
+          clearTimeout(timeout);
+
+          if (code === 0) {
+            localLogger.info(`[LocalLaravel] Flushed all failed jobs for ${site.name}`);
+            resolve({ success: true, message: 'All failed jobs deleted' });
+          } else {
+            resolve({ success: false, error: stderr || 'Command failed' });
+          }
+        });
+
+        child.on('error', (error: Error) => {
+          clearTimeout(timeout);
+          resolve({ success: false, error: error.message });
+        });
+      });
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] FLUSH_JOBS error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Open site in VS Code (SECURED - opens /app instead of /app/public)
+  ipcMain.handle(IPC_CHANNELS.OPEN_IN_VSCODE, async (_event, data: unknown) => {
+    // Validate input
+    const validation = safeValidateInput(SiteIdRequestSchema, data);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    const validatedData = validation.data!;
+
+    try {
+      const site = siteData.getSite(validatedData.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      // Use secure path resolution
+      const projectPath = getSafeAppPath(site.path);
+
+      // Build secure VS Code command
+      const vsCommand = buildVSCodeCommand(projectPath);
+      if (!vsCommand.safe) {
+        return { success: false, error: 'Invalid project path' };
+      }
+
+      // Use spawn with shell: false (no injection possible)
+      const { spawn } = require('child_process');
+
+      return new Promise((resolve) => {
+        const child = spawn(vsCommand.command, vsCommand.args, {
+          shell: false, // CRITICAL: Don't use shell
+          stdio: 'ignore',
+          detached: true,
+        });
+
+        child.unref(); // Don't wait for VS Code to exit
+
+        child.on('error', (error: Error) => {
+          localLogger.error(`[LocalLaravel] Failed to open VS Code: ${error.message}`);
+          resolve({ success: false, error: error.message });
+        });
+
+        // Give it a moment to start, then return success
+        setTimeout(() => {
+          localLogger.info(`[LocalLaravel] Opened VS Code for ${site.name} at ${projectPath}`);
+          resolve({ success: true });
+        }, 100);
       });
     } catch (error: any) {
       localLogger.error('[LocalLaravel] OPEN_IN_VSCODE error:', error);
@@ -674,23 +899,39 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
     }
   });
 
-  // Handler: Open site folder in Finder/Explorer (opens /app instead of site root)
-  ipcMain.handle(IPC_CHANNELS.OPEN_SITE_FOLDER, async (_event, data: { siteId: string }) => {
+  // Handler: Open site folder in Finder/Explorer (SECURED - opens /app instead of site root)
+  ipcMain.handle(IPC_CHANNELS.OPEN_SITE_FOLDER, async (_event, data: unknown) => {
+    // Validate input
+    const validation = safeValidateInput(SiteIdRequestSchema, data);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    const validatedData = validation.data!;
+
     try {
-      const site = siteData.getSite(data.siteId);
+      const site = siteData.getSite(validatedData.siteId);
       if (!site) {
         return { success: false, error: 'Site not found' };
       }
 
-      // Resolve the Laravel project path (app/ not app/public)
-      let projectPath = site.path;
-      if (projectPath.startsWith('~')) {
-        projectPath = path.join(os.homedir(), projectPath.slice(2));
-      }
-      projectPath = path.join(projectPath, 'app'); // Laravel root
+      // Use secure path resolution with traversal protection
+      const projectPath = getSafeAppPath(site.path);
 
+      // Verify path is within site directory
+      if (!isPathWithinSite(site.path, projectPath)) {
+        return { success: false, error: 'Invalid path: security violation' };
+      }
+
+      // Use Electron's shell.openPath (safer than exec)
       const { shell } = require('electron');
-      await shell.openPath(projectPath);
+      const result = await shell.openPath(projectPath);
+
+      // shell.openPath returns empty string on success, error message otherwise
+      if (result) {
+        localLogger.error(`[LocalLaravel] Failed to open folder: ${result}`);
+        return { success: false, error: result };
+      }
 
       localLogger.info(`[LocalLaravel] Opened folder for ${site.name} at ${projectPath}`);
       return { success: true };
@@ -700,49 +941,53 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
     }
   });
 
-  // Handler: Open site shell/terminal (opens in /app instead of app/public)
-  ipcMain.handle(IPC_CHANNELS.OPEN_SITE_SHELL, async (_event, data: { siteId: string }) => {
+  // Handler: Open site shell/terminal (SECURED - opens in /app instead of app/public)
+  ipcMain.handle(IPC_CHANNELS.OPEN_SITE_SHELL, async (_event, data: unknown) => {
+    // Validate input
+    const validation = safeValidateInput(SiteIdRequestSchema, data);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    const validatedData = validation.data!;
+
     try {
-      const site = siteData.getSite(data.siteId);
+      const site = siteData.getSite(validatedData.siteId);
       if (!site) {
         return { success: false, error: 'Site not found' };
       }
 
-      // Resolve the Laravel project path (app/ not app/public)
-      let projectPath = site.path;
-      if (projectPath.startsWith('~')) {
-        projectPath = path.join(os.homedir(), projectPath.slice(2));
-      }
-      projectPath = path.join(projectPath, 'app'); // Laravel root
+      // Use secure path resolution with traversal protection
+      const projectPath = getSafeAppPath(site.path);
 
-      const { exec } = require('child_process');
-
-      // Platform-specific terminal command
-      let command: string;
-      switch (process.platform) {
-        case 'win32':
-          command = `start cmd /K "cd /d ${projectPath}"`;
-          break;
-        case 'darwin':
-          // Open Terminal.app with the directory
-          command = `open -a Terminal "${projectPath}"`;
-          break;
-        default: // linux
-          // Try common terminal emulators
-          command = `x-terminal-emulator --working-directory="${projectPath}" || gnome-terminal --working-directory="${projectPath}" || xterm -e "cd ${projectPath} && $SHELL"`;
-          break;
+      // Build secure terminal command
+      const termCommand = buildTerminalCommand(projectPath);
+      if (!termCommand.safe) {
+        return { success: false, error: 'Invalid project path' };
       }
+
+      // Use spawn instead of exec
+      const { spawn } = require('child_process');
 
       return new Promise((resolve) => {
-        exec(command, (error: any) => {
-          if (error) {
-            localLogger.error(`[LocalLaravel] Failed to open terminal: ${error.message}`);
-            resolve({ success: false, error: error.message });
-          } else {
-            localLogger.info(`[LocalLaravel] Opened terminal for ${site.name} at ${projectPath}`);
-            resolve({ success: true });
-          }
+        const child = spawn(termCommand.command, termCommand.args, {
+          shell: termCommand.useShell, // Only use shell when platform requires it
+          stdio: 'ignore',
+          detached: true,
         });
+
+        child.unref(); // Don't wait for terminal to exit
+
+        child.on('error', (error: Error) => {
+          localLogger.error(`[LocalLaravel] Failed to open terminal: ${error.message}`);
+          resolve({ success: false, error: error.message });
+        });
+
+        // Give it a moment to start, then return success
+        setTimeout(() => {
+          localLogger.info(`[LocalLaravel] Opened terminal for ${site.name} at ${projectPath}`);
+          resolve({ success: true });
+        }, 100);
       });
     } catch (error: any) {
       localLogger.error('[LocalLaravel] OPEN_SITE_SHELL error:', error);
@@ -802,7 +1047,7 @@ function registerLifecycleHooks(context: LocalMain.AddonMainContext): void {
   // Hook: Inject Laravel service into site configuration
   hooks.addFilter('defaultSiteServices', (siteServices: any, siteSettings: any) => {
     localLogger.info('[LocalLaravel] defaultSiteServices filter called');
-    localLogger.info(`[LocalLaravel] siteSettings.customOptions: ${JSON.stringify(siteSettings?.customOptions)}`);
+    localLogger.info(`[LocalLaravel] siteSettings.customOptions: ${JSON.stringify(sanitizeForLogging(siteSettings?.customOptions))}`);
 
     // Check if this is a Laravel site creation
     if (siteSettings.customOptions?.[SITE_TYPE_KEY] === SITE_TYPE_VALUE) {
@@ -824,8 +1069,8 @@ function registerLifecycleHooks(context: LocalMain.AddonMainContext): void {
   // Hook: Modify site before creation (mark as Laravel)
   hooks.addFilter('modifyAddSiteObjectBeforeCreation', (site: any, newSiteInfo: any) => {
     localLogger.info('[LocalLaravel] modifyAddSiteObjectBeforeCreation filter called');
-    localLogger.info(`[LocalLaravel] newSiteInfo.customOptions: ${JSON.stringify(newSiteInfo?.customOptions)}`);
-    localLogger.info(`[LocalLaravel] site.customOptions before: ${JSON.stringify(site?.customOptions)}`);
+    localLogger.info(`[LocalLaravel] newSiteInfo.customOptions: ${JSON.stringify(sanitizeForLogging(newSiteInfo?.customOptions))}`);
+    localLogger.info(`[LocalLaravel] site.customOptions before: ${JSON.stringify(sanitizeForLogging(site?.customOptions))}`);
 
     if (newSiteInfo.customOptions?.[SITE_TYPE_KEY] === SITE_TYPE_VALUE) {
       localLogger.info(`[LocalLaravel] Marking site as Laravel: ${site.name}`);
@@ -838,7 +1083,7 @@ function registerLifecycleHooks(context: LocalMain.AddonMainContext): void {
         },
       };
 
-      localLogger.info(`[LocalLaravel] site.customOptions after: ${JSON.stringify(updatedSite.customOptions)}`);
+      localLogger.info(`[LocalLaravel] site.customOptions after: ${JSON.stringify(sanitizeForLogging(updatedSite.customOptions))}`);
       return updatedSite;
     }
     return site;
@@ -849,7 +1094,7 @@ function registerLifecycleHooks(context: LocalMain.AddonMainContext): void {
     localLogger.info('[LocalLaravel] siteAdded hook triggered');
     localLogger.info(`[LocalLaravel] site.name: ${site?.name}`);
     localLogger.info(`[LocalLaravel] site.id: ${site?.id}`);
-    localLogger.info(`[LocalLaravel] site.customOptions: ${JSON.stringify(site?.customOptions)}`);
+    localLogger.info(`[LocalLaravel] site.customOptions: ${JSON.stringify(sanitizeForLogging(site?.customOptions))}`);
 
     if (site.customOptions?.[SITE_TYPE_KEY] !== SITE_TYPE_VALUE) {
       localLogger.info('[LocalLaravel] Not a Laravel site, skipping installation');
