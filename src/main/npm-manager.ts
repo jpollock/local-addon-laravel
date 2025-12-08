@@ -125,7 +125,7 @@ export class NpmManager {
       const nodePath = path.join(npmDir, 'node');
 
       // Try node in same directory as npm first
-      let nodeCmd = fs.existsSync(nodePath) ? nodePath : 'node';
+      const nodeCmd = fs.existsSync(nodePath) ? nodePath : 'node';
 
       const child = spawn(nodeCmd, ['--version'], {
         shell: false,

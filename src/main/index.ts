@@ -20,7 +20,7 @@ import {
   SITE_TYPE_VALUE,
   LARAVEL_VERSIONS,
 } from '../common/constants';
-import { registerLaravelService, laravelServiceInstances } from './laravel-service';
+import { registerLaravelService } from './laravel-service';
 import { composerManager } from './composer-manager';
 import { laravelInstaller } from './laravel-installer';
 import type {
@@ -62,7 +62,6 @@ const creationProgress = new Map<string, {
  * The context parameter is REQUIRED - without it, this function won't be called.
  */
 export default function (context: LocalMain.AddonMainContext): void {
-  const { hooks } = context;
   const services = LocalMain.getServiceContainer().cradle as any;
   const { localLogger } = services;
 
@@ -83,9 +82,9 @@ export default function (context: LocalMain.AddonMainContext): void {
 /**
  * Register IPC handlers for renderer communication.
  */
-function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
+function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
   const services = LocalMain.getServiceContainer().cradle as any;
-  const { localLogger, siteData, siteProcessManager, siteDatabase } = services;
+  const { localLogger, siteData, siteProcessManager } = services;
 
   // Handler: Create Laravel site
   ipcMain.handle(IPC_CHANNELS.CREATE_SITE, async (_event, data: CreateLaravelSiteRequest) => {
@@ -798,7 +797,7 @@ function parseQueueFailedOutput(output: string): FailedJob[] {
 function registerLifecycleHooks(context: LocalMain.AddonMainContext): void {
   const { hooks } = context;
   const services = LocalMain.getServiceContainer().cradle as any;
-  const { localLogger, siteData } = services;
+  const { localLogger } = services;
 
   // Hook: Inject Laravel service into site configuration
   hooks.addFilter('defaultSiteServices', (siteServices: any, siteSettings: any) => {

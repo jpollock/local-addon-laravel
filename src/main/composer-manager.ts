@@ -235,9 +235,6 @@ export class ComposerManager {
   async run(args: string[], options: ComposerRunOptions): Promise<ComposerResult> {
     const startTime = Date.now();
 
-    // Use system PHP for simple commands, or site PHP for project commands
-    const phpPath = process.execPath; // Electron's Node can run PHP via child_process
-
     // For actual PHP execution, we need a real PHP binary
     // Use 'php' from PATH as fallback
     const command = `php ${this.escapePath(this.composerPath)} ${args.join(' ')}`;

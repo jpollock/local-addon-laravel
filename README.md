@@ -17,29 +17,58 @@ First-class Laravel development environment for [Local](https://localwp.com). Cr
 
 ## Installation
 
-### From Local Add-on Browser (Coming Soon)
+### Method 1: Pre-built Release (Recommended)
 
-1. Open Local
-2. Go to **Add-ons** in the sidebar
-3. Search for "Local Laravel"
-4. Click **Install**
+The easiest way to install the addon.
 
-### Manual Installation
+1. Go to the [Releases page](https://github.com/jpollock/local-addon-laravel/releases)
+2. Download the `.tgz` file from the latest release (e.g., `local-addon-laravel-0.0.1.tgz`)
+3. Open **Local**
+4. Go to **Add-ons** (in the left sidebar)
+5. Click **Install from disk** (top right)
+6. Select the `.tgz` file you downloaded
+7. Toggle the addon **ON** to enable
+8. Click **Relaunch** when prompted
 
-1. Download the latest release from [GitHub Releases](https://github.com/flavius-labs/local-laravel/releases)
-2. Extract to `~/.config/Local/addons/local-addon-laravel`
-3. Restart Local
+### Method 2: Build from Source
 
-### Development Installation
+For developers or contributors:
 
 ```bash
-git clone https://github.com/flavius-labs/local-laravel.git
-cd local-laravel
+# Clone the repository
+git clone https://github.com/jpollock/local-addon-laravel.git
+cd local-addon-laravel
+
+# Install dependencies and build
 npm install
 npm run build
+
+# Install symlink to Local's addons directory
 npm run install-addon
-# Restart Local
+
+# Restart Local, then enable the addon:
+# Local > Add-ons > Installed > Local Laravel > Enable
 ```
+
+## Uninstallation
+
+### If installed from disk (Method 1)
+
+1. Open **Local**
+2. Go to **Add-ons** (in the left sidebar)
+3. Find **Local Laravel**
+4. Toggle it **OFF**
+5. Click the **trash icon** or **Remove** button
+6. Restart Local
+
+### If installed via npm script (Method 2)
+
+```bash
+cd local-addon-laravel
+npm run uninstall-addon
+```
+
+Then restart Local.
 
 ## Usage
 
@@ -144,25 +173,34 @@ Local Laravel bundles Composer, but if you encounter issues:
 1. Check PHP memory limit in Local's PHP settings
 2. Try running `composer install` manually via SSH
 
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Build the addon
+npm run build
+
+# Watch mode for development
+npm run watch
+
+# Run tests
+npm test
+
+# Run tests with coverage
+npm run test:coverage
+
+# Lint code
+npm run lint
+
+# Type check
+npm run type-check
+```
+
 ## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Setup
-
-```bash
-git clone https://github.com/flavius-labs/local-laravel.git
-cd local-laravel
-npm install
-npm run watch  # Rebuild on changes
-```
-
-### Running Tests
-
-```bash
-npm test
-npm run test:coverage
-```
 
 ## License
 
@@ -176,5 +214,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Support
 
-- [GitHub Issues](https://github.com/flavius-labs/local-laravel/issues) - Bug reports and feature requests
-- [Discussions](https://github.com/flavius-labs/local-laravel/discussions) - Questions and community help
+- [GitHub Issues](https://github.com/jpollock/local-addon-laravel/issues) - Bug reports and feature requests
+- [Discussions](https://github.com/jpollock/local-addon-laravel/discussions) - Questions and community help

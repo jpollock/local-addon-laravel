@@ -1,5 +1,5 @@
 {
-  "name": "@flavius/local-laravel",
+  "name": "@local-labs/local-laravel",
   "productName": "Local Laravel",
   "version": "0.0.1",
   "description": "First-class Laravel development environment for Local. Create, develop, and manage Laravel applications with the same ease as WordPress sites.",
@@ -15,31 +15,38 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/flavius-labs/local-laravel.git"
+    "url": "https://github.com/jpollock/local-addon-laravel.git"
   },
   "bugs": {
-    "url": "https://github.com/flavius-labs/local-laravel/issues"
+    "url": "https://github.com/jpollock/local-addon-laravel/issues"
   },
-  "homepage": "https://github.com/flavius-labs/local-laravel#readme",
+  "homepage": "https://github.com/jpollock/local-addon-laravel#readme",
   "main": "lib/main.js",
   "renderer": "lib/renderer.js",
   "scripts": {
     "build": "npm run clean && npm run compile && npm run create-entry-points",
     "compile": "tsc -p .",
     "create-entry-points": "echo \"module.exports = require('./main/index').default || require('./main/index');\" > lib/main.js && echo \"module.exports = require('./renderer/index').default || require('./renderer/index');\" > lib/renderer.js",
-    "clean": "rm -rf lib",
+    "clean": "rm -rf lib coverage",
     "watch": "tsc -p . --watch",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "lint": "eslint src/**/*.{ts,tsx}",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,json}\"",
+    "type-check": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "precommit": "npm run lint && npm run typecheck && npm test",
+    "precommit": "npm run lint && npm run type-check && npm test",
+    "validate-release": "node scripts/validate-release.js",
     "install-addon": "ln -sf \"$(pwd)\" \"$HOME/Library/Application Support/Local/addons/local-addon-laravel\"",
     "uninstall-addon": "rm -f \"$HOME/Library/Application Support/Local/addons/local-addon-laravel\"",
-    "download-composer": "curl -sS https://getcomposer.org/download/latest-stable/composer.phar -o vendor/composer.phar && chmod +x vendor/composer.phar"
+    "download-composer": "curl -sS https://getcomposer.org/download/latest-stable/composer.phar -o vendor/composer.phar && chmod +x vendor/composer.phar",
+    "prepare": "npm run build"
   },
   "engines": {
+    "node": ">=18",
     "local": ">=9.0.0"
   },
   "localAddon": {
@@ -57,8 +64,11 @@
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
     "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react": "^7.33.2",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
+    "prettier": "^3.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "ts-jest": "^29.1.1",
