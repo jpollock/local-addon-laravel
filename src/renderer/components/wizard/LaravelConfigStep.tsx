@@ -144,6 +144,9 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
           padding: '40px',
           maxWidth: '700px',
           margin: '0 auto',
+          height: '100%',
+          overflowY: 'auto' as const,
+          boxSizing: 'border-box' as const,
         },
       },
       // Header

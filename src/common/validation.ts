@@ -103,8 +103,9 @@ export function containsShellMetacharacters(value: string): boolean {
 
 /**
  * Safe string that doesn't contain shell metacharacters.
+ * Used internally by validation schemas.
  */
-const safeString = z.string().refine(
+export const SafeStringSchema = z.string().refine(
   (val) => !containsShellMetacharacters(val),
   { message: 'String contains disallowed characters' }
 );
@@ -131,7 +132,7 @@ export const SiteNameSchema = z.string()
 export const SiteDomainSchema = z.string()
   .min(3, 'Domain must be at least 3 characters')
   .max(100, 'Domain too long')
-  .regex(/^[a-z0-9][a-z0-9\-]*\.local$/, 'Invalid domain format (must end with .local)');
+  .regex(/^[a-z0-9][a-z0-9-]*\.local$/, 'Invalid domain format (must end with .local)');
 
 /**
  * Laravel version validation.

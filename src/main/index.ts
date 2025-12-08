@@ -31,18 +31,15 @@ import type {
   FailedJob,
 } from '../common/types';
 import {
-  CreateSiteRequestSchema,
   ArtisanRequestSchema,
   QueueJobRequestSchema,
   GetLogsRequestSchema,
   GetEnvRequestSchema,
   UpdateEnvRequestSchema,
   SiteIdRequestSchema,
-  GetCreationStatusRequestSchema,
   safeValidateInput,
 } from '../common/validation';
 import {
-  resolveSitePath,
   getSafeAppPath,
   getSafePathInApp,
   isPathWithinSite,
