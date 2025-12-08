@@ -1,7 +1,7 @@
 {
   "name": "@flavius/local-laravel",
   "productName": "Local Laravel",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "First-class Laravel development environment for Local. Create, develop, and manage Laravel applications with the same ease as WordPress sites.",
   "keywords": [
     "local-addon",

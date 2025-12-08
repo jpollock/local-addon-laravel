@@ -40,6 +40,11 @@ export const IPC_CHANNELS = {
   RETRY_JOB: 'local-laravel:queue-retry',
   FORGET_JOB: 'local-laravel:queue-forget',
   FLUSH_JOBS: 'local-laravel:queue-flush',
+
+  // Editor integration
+  OPEN_IN_VSCODE: 'local-laravel:open-vscode',
+  OPEN_SITE_FOLDER: 'local-laravel:open-folder',
+  OPEN_SITE_SHELL: 'local-laravel:open-shell',
 } as const;
 
 /**

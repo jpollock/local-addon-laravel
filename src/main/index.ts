@@ -229,6 +229,19 @@ function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
     }
   });
 
+  // Handler: Get all Laravel site IDs (for batch checking, e.g., sidebar badges)
+  ipcMain.handle(IPC_CHANNELS.GET_LARAVEL_SITES, async () => {
+    try {
+      const sites = siteData.getSites();
+      const laravelSiteIds = Object.keys(sites).filter(
+        (siteId) => sites[siteId]?.customOptions?.[SITE_TYPE_KEY] === SITE_TYPE_VALUE
+      );
+      return { success: true, siteIds: laravelSiteIds };
+    } catch (error: any) {
+      return { success: false, error: error.message, siteIds: [] };
+    }
+  });
+
   // Handler: Get Laravel site info
   ipcMain.handle(IPC_CHANNELS.GET_LARAVEL_INFO, async (_event, siteId: string) => {
     try {
@@ -610,6 +623,130 @@ function registerIpcHandlers(context: LocalMain.AddonMainContext): void {
       return { success: true, message: 'All failed jobs deleted' };
     } catch (error: any) {
       localLogger.error('[LocalLaravel] FLUSH_JOBS error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Open site in VS Code (opens /app instead of /app/public)
+  ipcMain.handle(IPC_CHANNELS.OPEN_IN_VSCODE, async (_event, data: { siteId: string }) => {
+    try {
+      const site = siteData.getSite(data.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      // Resolve the Laravel project path (app/ not app/public)
+      let projectPath = site.path;
+      if (projectPath.startsWith('~')) {
+        projectPath = path.join(os.homedir(), projectPath.slice(2));
+      }
+      projectPath = path.join(projectPath, 'app'); // Laravel root
+
+      // Platform-specific VS Code command
+      let command: string;
+      switch (process.platform) {
+        case 'win32':
+          command = `code -n "${projectPath}"`;
+          break;
+        case 'darwin':
+          command = `open -n -b "com.microsoft.VSCode" --args "${projectPath}"`;
+          break;
+        default: // linux
+          command = `code -n "${projectPath}"`;
+          break;
+      }
+
+      const { exec } = require('child_process');
+
+      return new Promise((resolve) => {
+        exec(command, (error: any) => {
+          if (error) {
+            localLogger.error(`[LocalLaravel] Failed to open VS Code: ${error.message}`);
+            resolve({ success: false, error: error.message });
+          } else {
+            localLogger.info(`[LocalLaravel] Opened VS Code for ${site.name} at ${projectPath}`);
+            resolve({ success: true });
+          }
+        });
+      });
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] OPEN_IN_VSCODE error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Open site folder in Finder/Explorer (opens /app instead of site root)
+  ipcMain.handle(IPC_CHANNELS.OPEN_SITE_FOLDER, async (_event, data: { siteId: string }) => {
+    try {
+      const site = siteData.getSite(data.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      // Resolve the Laravel project path (app/ not app/public)
+      let projectPath = site.path;
+      if (projectPath.startsWith('~')) {
+        projectPath = path.join(os.homedir(), projectPath.slice(2));
+      }
+      projectPath = path.join(projectPath, 'app'); // Laravel root
+
+      const { shell } = require('electron');
+      await shell.openPath(projectPath);
+
+      localLogger.info(`[LocalLaravel] Opened folder for ${site.name} at ${projectPath}`);
+      return { success: true };
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] OPEN_SITE_FOLDER error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handler: Open site shell/terminal (opens in /app instead of app/public)
+  ipcMain.handle(IPC_CHANNELS.OPEN_SITE_SHELL, async (_event, data: { siteId: string }) => {
+    try {
+      const site = siteData.getSite(data.siteId);
+      if (!site) {
+        return { success: false, error: 'Site not found' };
+      }
+
+      // Resolve the Laravel project path (app/ not app/public)
+      let projectPath = site.path;
+      if (projectPath.startsWith('~')) {
+        projectPath = path.join(os.homedir(), projectPath.slice(2));
+      }
+      projectPath = path.join(projectPath, 'app'); // Laravel root
+
+      const { exec } = require('child_process');
+
+      // Platform-specific terminal command
+      let command: string;
+      switch (process.platform) {
+        case 'win32':
+          command = `start cmd /K "cd /d ${projectPath}"`;
+          break;
+        case 'darwin':
+          // Open Terminal.app with the directory
+          command = `open -a Terminal "${projectPath}"`;
+          break;
+        default: // linux
+          // Try common terminal emulators
+          command = `x-terminal-emulator --working-directory="${projectPath}" || gnome-terminal --working-directory="${projectPath}" || xterm -e "cd ${projectPath} && $SHELL"`;
+          break;
+      }
+
+      return new Promise((resolve) => {
+        exec(command, (error: any) => {
+          if (error) {
+            localLogger.error(`[LocalLaravel] Failed to open terminal: ${error.message}`);
+            resolve({ success: false, error: error.message });
+          } else {
+            localLogger.info(`[LocalLaravel] Opened terminal for ${site.name} at ${projectPath}`);
+            resolve({ success: true });
+          }
+        });
+      });
+    } catch (error: any) {
+      localLogger.error('[LocalLaravel] OPEN_SITE_SHELL error:', error);
       return { success: false, error: error.message };
     }
   });
