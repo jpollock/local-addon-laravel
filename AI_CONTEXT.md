@@ -228,11 +228,12 @@ localLogger.error('[LocalLaravel] Error:', error);
 
 ### Not Yet Addressed
 1. **Wizard scroll issue** - ConfigStep content may overflow without scroll (see `plans/` folder for context)
-2. **No Jetstream support** - Only Breeze is implemented
-3. **No queue worker UI** - Can view failed jobs but can't start workers
-4. **No Tinker terminal** - Would be nice to have interactive REPL
+2. **No queue worker UI** - Can view failed jobs but can't start workers
+3. **No Tinker terminal** - Would be nice to have interactive REPL
 
 ### Resolved
+- ✅ Jetstream support added (Dec 9, 2024) - Livewire/Inertia stacks with Teams/API options
+- ✅ Breeze API mode added (Dec 9, 2024) - Headless authentication option
 - ✅ Terminal preference not respected (fixed Dec 9, 2024)
 - ✅ Security hardening for all IPC handlers
 - ✅ Input validation with Zod schemas
@@ -253,10 +254,9 @@ localLogger.error('[LocalLaravel] Error:', error);
 4. **Database Migrations UI** - Visual migration status
 
 ### Low Priority (Future)
-1. **Jetstream Support** - Additional starter kit option
-2. **Filament Support** - Admin panel integration
-3. **Scheduler Integration** - Cron job visualization
-4. **Multi-site sync** - Shared Composer cache
+1. **Filament Support** - Admin panel integration
+2. **Scheduler Integration** - Cron job visualization
+3. **Multi-site sync** - Shared Composer cache
 
 ---
 
