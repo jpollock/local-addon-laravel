@@ -13,12 +13,17 @@ export type LaravelVersion = '11' | '10';
 /**
  * Starter kit identifiers.
  */
-export type StarterKit = 'none' | 'breeze';
+export type StarterKit = 'none' | 'breeze' | 'jetstream';
 
 /**
  * Breeze stack options (when breeze is selected).
  */
-export type BreezeStack = 'blade' | 'livewire' | 'react' | 'vue';
+export type BreezeStack = 'blade' | 'livewire' | 'react' | 'vue' | 'api';
+
+/**
+ * Jetstream stack options (when jetstream is selected).
+ */
+export type JetstreamStack = 'livewire' | 'inertia';
 
 /**
  * Configuration for a Laravel site stored in customOptions.
@@ -38,6 +43,15 @@ export interface LaravelSiteConfig {
 
   /** Breeze stack (if breeze selected) */
   breezeStack?: BreezeStack;
+
+  /** Jetstream stack (if jetstream selected) */
+  jetstreamStack?: JetstreamStack;
+
+  /** Jetstream teams feature enabled */
+  jetstreamTeams?: boolean;
+
+  /** Jetstream API feature enabled */
+  jetstreamApi?: boolean;
 
   /** Timestamp when site was created */
   createdAt: string;
@@ -67,6 +81,15 @@ export interface CreateLaravelSiteRequest {
 
   /** Breeze stack (required if starterKit is 'breeze') */
   breezeStack?: BreezeStack;
+
+  /** Jetstream stack (required if starterKit is 'jetstream') */
+  jetstreamStack?: JetstreamStack;
+
+  /** Jetstream teams feature enabled */
+  jetstreamTeams?: boolean;
+
+  /** Jetstream API feature enabled */
+  jetstreamApi?: boolean;
 
   /** MySQL version to use */
   mysqlVersion?: string;

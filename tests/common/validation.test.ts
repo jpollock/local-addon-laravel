@@ -14,6 +14,7 @@ import {
   PhpVersionSchema,
   StarterKitSchema,
   BreezeStackSchema,
+  JetstreamStackSchema,
   CreateSiteRequestSchema,
   ArtisanRequestSchema,
   ArtisanArgumentSchema,
@@ -158,10 +159,11 @@ describe('Validation Module', () => {
     it('should accept valid starter kits', () => {
       expect(StarterKitSchema.safeParse('none').success).toBe(true);
       expect(StarterKitSchema.safeParse('breeze').success).toBe(true);
+      expect(StarterKitSchema.safeParse('jetstream').success).toBe(true);
     });
 
     it('should reject invalid starter kits', () => {
-      expect(StarterKitSchema.safeParse('jetstream').success).toBe(false);
+      expect(StarterKitSchema.safeParse('laravel-ui').success).toBe(false);
       expect(StarterKitSchema.safeParse('').success).toBe(false);
     });
   });
@@ -172,10 +174,23 @@ describe('Validation Module', () => {
       expect(BreezeStackSchema.safeParse('livewire').success).toBe(true);
       expect(BreezeStackSchema.safeParse('react').success).toBe(true);
       expect(BreezeStackSchema.safeParse('vue').success).toBe(true);
+      expect(BreezeStackSchema.safeParse('api').success).toBe(true);
     });
 
     it('should reject invalid Breeze stacks', () => {
       expect(BreezeStackSchema.safeParse('angular').success).toBe(false);
+    });
+  });
+
+  describe('JetstreamStackSchema', () => {
+    it('should accept valid Jetstream stacks', () => {
+      expect(JetstreamStackSchema.safeParse('livewire').success).toBe(true);
+      expect(JetstreamStackSchema.safeParse('inertia').success).toBe(true);
+    });
+
+    it('should reject invalid Jetstream stacks', () => {
+      expect(JetstreamStackSchema.safeParse('blade').success).toBe(false);
+      expect(JetstreamStackSchema.safeParse('react').success).toBe(false);
     });
   });
 
@@ -207,6 +222,34 @@ describe('Validation Module', () => {
         starterKit: 'breeze',
       };
       expect(CreateSiteRequestSchema.safeParse(breezeNoStack).success).toBe(false);
+    });
+
+    it('should accept requests with jetstream and jetstreamStack', () => {
+      const withJetstream = {
+        ...validRequest,
+        starterKit: 'jetstream',
+        jetstreamStack: 'livewire',
+      };
+      expect(CreateSiteRequestSchema.safeParse(withJetstream).success).toBe(true);
+    });
+
+    it('should accept jetstream with optional teams and api flags', () => {
+      const withJetstreamOptions = {
+        ...validRequest,
+        starterKit: 'jetstream',
+        jetstreamStack: 'inertia',
+        jetstreamTeams: true,
+        jetstreamApi: true,
+      };
+      expect(CreateSiteRequestSchema.safeParse(withJetstreamOptions).success).toBe(true);
+    });
+
+    it('should reject jetstream without jetstreamStack', () => {
+      const jetstreamNoStack = {
+        ...validRequest,
+        starterKit: 'jetstream',
+      };
+      expect(CreateSiteRequestSchema.safeParse(jetstreamNoStack).success).toBe(false);
     });
 
     it('should accept optional sitePath', () => {

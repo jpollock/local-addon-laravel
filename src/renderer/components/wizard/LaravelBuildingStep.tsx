@@ -111,6 +111,9 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
           phpVersion: siteSettings.phpVersion || '8.3',
           starterKit: siteSettings.starterKit || 'none',
           breezeStack: siteSettings.breezeStack,
+          jetstreamStack: siteSettings.jetstreamStack,
+          jetstreamTeams: siteSettings.jetstreamTeams,
+          jetstreamApi: siteSettings.jetstreamApi,
         }
       );
 

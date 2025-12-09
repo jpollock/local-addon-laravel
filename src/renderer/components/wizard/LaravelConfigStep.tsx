@@ -8,13 +8,14 @@
  */
 
 import * as React from 'react';
-import type { WizardStepProps, LaravelVersion, StarterKit, BreezeStack } from '../../../common/types';
+import type { WizardStepProps, LaravelVersion, StarterKit, BreezeStack, JetstreamStack } from '../../../common/types';
 import {
   ROUTES,
   LARAVEL_VERSIONS,
   DEFAULT_LARAVEL_VERSION,
   STARTER_KITS,
   DEFAULT_STARTER_KIT,
+  JETSTREAM_STACKS,
 } from '../../../common/constants';
 
 interface State {
@@ -22,6 +23,9 @@ interface State {
   phpVersion: string;
   starterKit: StarterKit;
   breezeStack: BreezeStack;
+  jetstreamStack: JetstreamStack;
+  jetstreamTeams: boolean;
+  jetstreamApi: boolean;
 }
 
 /**
@@ -37,11 +41,20 @@ const PHP_VERSIONS = [
 /**
  * Breeze stack options.
  */
-const BREEZE_STACKS: Array<{ value: BreezeStack; label: string; description: string }> = [
+const BREEZE_STACKS_UI: Array<{ value: BreezeStack; label: string; description: string }> = [
   { value: 'blade', label: 'Blade + Alpine.js', description: 'Traditional server-side rendering' },
   { value: 'livewire', label: 'Livewire', description: 'Full-stack with reactive components' },
   { value: 'react', label: 'React + Inertia', description: 'React SPA with server-side routing' },
   { value: 'vue', label: 'Vue + Inertia', description: 'Vue SPA with server-side routing' },
+  { value: 'api', label: 'API Only', description: 'Headless backend for separate frontend' },
+];
+
+/**
+ * Jetstream stack options.
+ */
+const JETSTREAM_STACKS_UI: Array<{ value: JetstreamStack; label: string; description: string }> = [
+  { value: 'livewire', label: 'Livewire', description: 'PHP-driven reactive components' },
+  { value: 'inertia', label: 'Inertia (Vue)', description: 'Vue.js SPA with server-side routing' },
 ];
 
 /**
@@ -62,6 +75,9 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
       phpVersion: props.siteSettings.phpVersion || '8.3',
       starterKit: (props.siteSettings.starterKit as StarterKit) || DEFAULT_STARTER_KIT,
       breezeStack: (props.siteSettings.breezeStack as BreezeStack) || 'blade',
+      jetstreamStack: (props.siteSettings.jetstreamStack as JetstreamStack) || 'livewire',
+      jetstreamTeams: props.siteSettings.jetstreamTeams || false,
+      jetstreamApi: props.siteSettings.jetstreamApi || false,
     };
   }
 
@@ -103,6 +119,27 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
   };
 
   /**
+   * Handle Jetstream stack change.
+   */
+  handleJetstreamStackChange = (stack: JetstreamStack): void => {
+    this.setState({ jetstreamStack: stack });
+  };
+
+  /**
+   * Handle Jetstream teams toggle.
+   */
+  handleJetstreamTeamsChange = (enabled: boolean): void => {
+    this.setState({ jetstreamTeams: enabled });
+  };
+
+  /**
+   * Handle Jetstream API toggle.
+   */
+  handleJetstreamApiChange = (enabled: boolean): void => {
+    this.setState({ jetstreamApi: enabled });
+  };
+
+  /**
    * Go back to previous step.
    */
   handleBack = (): void => {
@@ -113,7 +150,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
    * Validate and proceed to building step.
    */
   handleContinue = (): void => {
-    const { laravelVersion, phpVersion, starterKit, breezeStack } = this.state;
+    const { laravelVersion, phpVersion, starterKit, breezeStack, jetstreamStack, jetstreamTeams, jetstreamApi } = this.state;
 
     // Update settings and navigate
     this.props.updateSiteSettings({
@@ -121,6 +158,9 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
       phpVersion,
       starterKit,
       breezeStack: starterKit === 'breeze' ? breezeStack : undefined,
+      jetstreamStack: starterKit === 'jetstream' ? jetstreamStack : undefined,
+      jetstreamTeams: starterKit === 'jetstream' ? jetstreamTeams : undefined,
+      jetstreamApi: starterKit === 'jetstream' ? jetstreamApi : undefined,
     });
 
     this.props.history.push(ROUTES.BUILDING);
@@ -135,7 +175,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
   }
 
   render(): React.ReactNode {
-    const { laravelVersion, phpVersion, starterKit, breezeStack } = this.state;
+    const { laravelVersion, phpVersion, starterKit, breezeStack, jetstreamStack, jetstreamTeams, jetstreamApi } = this.state;
 
     return React.createElement(
       'div',
@@ -396,7 +436,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 gap: '12px',
               },
             },
-            BREEZE_STACKS.map((stack) =>
+            BREEZE_STACKS_UI.map((stack) =>
               React.createElement(
                 'button',
                 {
@@ -433,6 +473,160 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                     },
                   },
                   stack.description
+                )
+              )
+            )
+          )
+        ),
+
+      // Jetstream Stack Selection (conditional)
+      starterKit === 'jetstream' &&
+        React.createElement(
+          'div',
+          { style: { marginBottom: '28px' } },
+          React.createElement(
+            'label',
+            {
+              style: {
+                display: 'block',
+                marginBottom: '12px',
+                fontSize: '14px',
+                fontWeight: 500,
+                color: '#333',
+              },
+            },
+            'Jetstream Stack'
+          ),
+          React.createElement(
+            'div',
+            {
+              style: {
+                display: 'flex',
+                gap: '12px',
+                marginBottom: '16px',
+              },
+            },
+            JETSTREAM_STACKS_UI.map((stack) =>
+              React.createElement(
+                'button',
+                {
+                  key: stack.value,
+                  onClick: () => this.handleJetstreamStackChange(stack.value),
+                  style: {
+                    flex: 1,
+                    padding: '14px',
+                    border: jetstreamStack === stack.value ? '2px solid #f55247' : '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    backgroundColor: jetstreamStack === stack.value ? '#fff5f4' : '#fff',
+                    cursor: 'pointer',
+                    textAlign: 'left' as const,
+                    transition: 'all 0.2s',
+                  },
+                },
+                React.createElement(
+                  'div',
+                  {
+                    style: {
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      color: jetstreamStack === stack.value ? '#f55247' : '#333',
+                      marginBottom: '2px',
+                    },
+                  },
+                  stack.label
+                ),
+                React.createElement(
+                  'div',
+                  {
+                    style: {
+                      fontSize: '11px',
+                      color: '#888',
+                    },
+                  },
+                  stack.description
+                )
+              )
+            )
+          ),
+          // Jetstream Options (Teams and API checkboxes)
+          React.createElement(
+            'div',
+            {
+              style: {
+                display: 'flex',
+                flexDirection: 'column' as const,
+                gap: '12px',
+                padding: '16px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb',
+              },
+            },
+            React.createElement(
+              'label',
+              {
+                style: {
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: '#333',
+                },
+              },
+              React.createElement('input', {
+                type: 'checkbox',
+                checked: jetstreamTeams,
+                onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+                  this.handleJetstreamTeamsChange(e.target.checked),
+                style: {
+                  width: '16px',
+                  height: '16px',
+                  accentColor: '#f55247',
+                },
+              }),
+              React.createElement(
+                'span',
+                null,
+                'Enable team management',
+                React.createElement(
+                  'span',
+                  { style: { color: '#666', marginLeft: '6px', fontSize: '12px' } },
+                  '(multi-user workspaces)'
+                )
+              )
+            ),
+            React.createElement(
+              'label',
+              {
+                style: {
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: '#333',
+                },
+              },
+              React.createElement('input', {
+                type: 'checkbox',
+                checked: jetstreamApi,
+                onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+                  this.handleJetstreamApiChange(e.target.checked),
+                style: {
+                  width: '16px',
+                  height: '16px',
+                  accentColor: '#f55247',
+                },
+              }),
+              React.createElement(
+                'span',
+                null,
+                'Enable API support',
+                React.createElement(
+                  'span',
+                  { style: { color: '#666', marginLeft: '6px', fontSize: '12px' } },
+                  '(Laravel Sanctum)'
                 )
               )
             )

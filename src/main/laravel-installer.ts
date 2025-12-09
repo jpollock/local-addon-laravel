@@ -24,6 +24,7 @@ import type {
   LaravelVersion,
   StarterKit,
   BreezeStack,
+  JetstreamStack,
   LocalSite,
   CreationProgress,
 } from '../common/types';
@@ -40,6 +41,15 @@ export interface LaravelInstallOptions {
 
   /** Breeze stack (if breeze selected) */
   breezeStack?: BreezeStack;
+
+  /** Jetstream stack (if jetstream selected) */
+  jetstreamStack?: JetstreamStack;
+
+  /** Jetstream teams feature */
+  jetstreamTeams?: boolean;
+
+  /** Jetstream API feature */
+  jetstreamApi?: boolean;
 
   /** Progress callback */
   onProgress?: (progress: CreationProgress) => void;
@@ -143,44 +153,10 @@ export class LaravelInstaller {
       const installedPackages: string[] = [];
 
       if (starterKit !== 'none') {
-        const kitConfig = STARTER_KITS[starterKit];
-
         this.logger.info(`[LaravelInstaller] Installing starter kit: ${starterKit}`);
 
-        for (const pkg of kitConfig.packages) {
-          const requireResult = await composerManager.runForSite(site, [
-            'require',
-            pkg,
-            '--no-interaction',
-            '--ignore-platform-reqs',  // Use Local's PHP, not system PHP
-          ], { cwd: appPath });
-
-          if (requireResult.success) {
-            installedPackages.push(pkg);
-          }
-        }
-
-        // Run post-install commands for the kit
-        if (kitConfig.postInstall && kitConfig.postInstall.length > 0) {
-          const breezeArgs: string[] = [...kitConfig.postInstall];
-
-          // Add stack option for Breeze
-          if (starterKit === 'breeze' && breezeStack) {
-            breezeArgs[1] = breezeStack as string;
-          }
-
-          await this.runArtisan(appPath, breezeArgs);
-          this.logger.info(`[LaravelInstaller] Starter kit ${starterKit} installed`);
-
-          // Run npm install and build if frontend assets exist
-          const packageJsonPath = path.join(appPath, 'package.json');
-          if (await fs.pathExists(packageJsonPath)) {
-            // NpmManager handles Node.js via Electron's built-in Node v22+
-            await this.runNpm(appPath, ['install']);
-            await this.runNpm(appPath, ['run', 'build']);
-            this.logger.info('[LaravelInstaller] Frontend assets built');
-          }
-        }
+        const packages = await this.installStarterKit(site, appPath, options);
+        installedPackages.push(...packages);
       }
 
       // Step 6: Finalize
@@ -403,6 +379,113 @@ export class LaravelInstaller {
         }
       }
     }
+  }
+
+  /**
+   * Install the selected starter kit.
+   */
+  private async installStarterKit(
+    site: LocalSite,
+    appPath: string,
+    options: LaravelInstallOptions
+  ): Promise<string[]> {
+    const { starterKit, breezeStack, jetstreamStack, jetstreamTeams, jetstreamApi } = options;
+    const installedPackages: string[] = [];
+
+    switch (starterKit) {
+      case 'breeze':
+        await this.installBreeze(site, appPath, breezeStack!);
+        installedPackages.push('laravel/breeze');
+        break;
+
+      case 'jetstream':
+        await this.installJetstream(site, appPath, options.laravelVersion, jetstreamStack!, jetstreamTeams, jetstreamApi);
+        installedPackages.push('laravel/jetstream');
+        break;
+    }
+
+    return installedPackages;
+  }
+
+  /**
+   * Install Laravel Breeze starter kit.
+   */
+  private async installBreeze(
+    site: LocalSite,
+    appPath: string,
+    stack: BreezeStack
+  ): Promise<void> {
+    // Install Breeze package (dev dependency)
+    await composerManager.runForSite(site, [
+      'require',
+      'laravel/breeze',
+      '--dev',
+      '--no-interaction',
+      '--ignore-platform-reqs',
+    ], { cwd: appPath });
+
+    // Run breeze:install with the selected stack
+    await this.runArtisan(appPath, ['breeze:install', stack]);
+    this.logger.info(`[LaravelInstaller] Breeze ${stack} stack installed`);
+
+    // Build frontend assets (skip for API mode - no frontend)
+    if (stack !== 'api') {
+      await this.buildFrontendAssets(appPath);
+    } else {
+      this.logger.info('[LaravelInstaller] API mode: skipping frontend build');
+    }
+  }
+
+  /**
+   * Install Laravel Jetstream starter kit.
+   */
+  private async installJetstream(
+    site: LocalSite,
+    appPath: string,
+    laravelVersion: LaravelVersion,
+    stack: JetstreamStack,
+    teams?: boolean,
+    api?: boolean
+  ): Promise<void> {
+    // Jetstream version depends on Laravel version
+    // Jetstream 5.x for Laravel 11, 4.x for Laravel 10
+    const jetstreamVersion = laravelVersion === '11' ? '^5.0' : '^4.0';
+
+    // Install Jetstream package (dev dependency)
+    await composerManager.runForSite(site, [
+      'require',
+      `laravel/jetstream:${jetstreamVersion}`,
+      '--dev',
+      '--no-interaction',
+      '--ignore-platform-reqs',
+    ], { cwd: appPath });
+
+    // Build artisan command with optional flags
+    const args = ['jetstream:install', stack];
+    if (teams) args.push('--teams');
+    if (api) args.push('--api');
+
+    await this.runArtisan(appPath, args);
+    this.logger.info(`[LaravelInstaller] Jetstream ${stack} stack installed (teams: ${!!teams}, api: ${!!api})`);
+
+    // Jetstream always has frontend assets
+    await this.buildFrontendAssets(appPath);
+  }
+
+  /**
+   * Build frontend assets with npm.
+   */
+  private async buildFrontendAssets(appPath: string): Promise<void> {
+    const packageJsonPath = path.join(appPath, 'package.json');
+
+    if (!(await fs.pathExists(packageJsonPath))) {
+      this.logger.info('[LaravelInstaller] No package.json, skipping npm');
+      return;
+    }
+
+    await this.runNpm(appPath, ['install']);
+    await this.runNpm(appPath, ['run', 'build']);
+    this.logger.info('[LaravelInstaller] Frontend assets built');
   }
 
   /**

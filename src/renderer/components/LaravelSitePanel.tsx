@@ -835,7 +835,24 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
     const customOptions = site.customOptions || {};
     const laravelVersion = customOptions.laravelVersion || 'Unknown';
     const starterKit = customOptions.starterKit || 'none';
+    const breezeStack = customOptions.breezeStack;
+    const jetstreamStack = customOptions.jetstreamStack;
+    const jetstreamTeams = customOptions.jetstreamTeams;
+    const jetstreamApi = customOptions.jetstreamApi;
     const isRunning = siteStatus === 'running';
+
+    // Build starter kit display string
+    let starterKitDisplay = '';
+    if (starterKit === 'breeze' && breezeStack) {
+      starterKitDisplay = `Breeze (${breezeStack})`;
+    } else if (starterKit === 'jetstream' && jetstreamStack) {
+      const features: string[] = [];
+      if (jetstreamTeams) features.push('teams');
+      if (jetstreamApi) features.push('API');
+      starterKitDisplay = `Jetstream (${jetstreamStack}${features.length ? ' + ' + features.join(', ') : ''})`;
+    } else if (starterKit !== 'none') {
+      starterKitDisplay = String(starterKit);
+    }
 
     return React.createElement(
       'div',
@@ -906,7 +923,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                   color: '#666',
                 },
               },
-              `Version ${laravelVersion}${starterKit !== 'none' ? ` with ${starterKit}` : ''}`
+              `Version ${laravelVersion}${starterKitDisplay ? ` with ${starterKitDisplay}` : ''}`
             )
           )
         ),

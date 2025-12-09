@@ -99,11 +99,33 @@ export const STARTER_KITS = {
   },
   breeze: {
     label: 'Laravel Breeze',
-    description: 'Simple authentication with Blade and Tailwind CSS',
+    description: 'Simple authentication scaffolding',
     packages: ['laravel/breeze'],
-    postInstall: ['breeze:install', 'blade'],
   },
-  // Future: jetstream, filament, etc.
+  jetstream: {
+    label: 'Laravel Jetstream',
+    description: 'Full-featured auth with 2FA, sessions, and teams',
+    packages: ['laravel/jetstream'],
+  },
+} as const;
+
+/**
+ * Breeze stack options.
+ */
+export const BREEZE_STACKS = {
+  blade: { label: 'Blade + Alpine.js', description: 'Traditional server-side rendering' },
+  livewire: { label: 'Livewire', description: 'Full-stack with reactive components' },
+  react: { label: 'React + Inertia', description: 'React SPA with server-side routing' },
+  vue: { label: 'Vue + Inertia', description: 'Vue SPA with server-side routing' },
+  api: { label: 'API Only', description: 'Headless backend for separate frontend' },
+} as const;
+
+/**
+ * Jetstream stack options.
+ */
+export const JETSTREAM_STACKS = {
+  livewire: { label: 'Livewire', description: 'PHP-driven reactive components' },
+  inertia: { label: 'Inertia (Vue)', description: 'Vue.js SPA with server-side routing' },
 } as const;
 
 /**

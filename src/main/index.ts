@@ -202,6 +202,9 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
         laravelVersion: laravelVersion,
         starterKit: data.starterKit || 'none',
         breezeStack: data.breezeStack,
+        jetstreamStack: data.jetstreamStack,
+        jetstreamTeams: data.jetstreamTeams,
+        jetstreamApi: data.jetstreamApi,
         createdAt: new Date().toISOString(),
       };
 
@@ -228,6 +231,9 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
         laravelVersion: laravelVersion as LaravelVersion,
         starterKit: (data.starterKit || 'none') as StarterKit,
         breezeStack: data.breezeStack,
+        jetstreamStack: data.jetstreamStack,
+        jetstreamTeams: data.jetstreamTeams,
+        jetstreamApi: data.jetstreamApi,
         onProgress: (progress: any) => {
           broadcastProgress(site.id, progress);
         },

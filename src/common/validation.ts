@@ -85,6 +85,9 @@ export const ALLOWED_ARTISAN_COMMANDS = [
   // Breeze
   'breeze:install',
 
+  // Jetstream
+  'jetstream:install',
+
   // Tinker (read-only exploration)
   'tinker',
 ] as const;
@@ -148,12 +151,17 @@ export const PhpVersionSchema = z.string()
 /**
  * Starter kit validation.
  */
-export const StarterKitSchema = z.enum(['none', 'breeze']);
+export const StarterKitSchema = z.enum(['none', 'breeze', 'jetstream']);
 
 /**
  * Breeze stack validation.
  */
-export const BreezeStackSchema = z.enum(['blade', 'livewire', 'react', 'vue']);
+export const BreezeStackSchema = z.enum(['blade', 'livewire', 'react', 'vue', 'api']);
+
+/**
+ * Jetstream stack validation.
+ */
+export const JetstreamStackSchema = z.enum(['livewire', 'inertia']);
 
 /**
  * MySQL version validation.
@@ -173,10 +181,16 @@ export const CreateSiteRequestSchema = z.object({
   phpVersion: PhpVersionSchema,
   starterKit: StarterKitSchema,
   breezeStack: BreezeStackSchema.optional(),
+  jetstreamStack: JetstreamStackSchema.optional(),
+  jetstreamTeams: z.boolean().optional(),
+  jetstreamApi: z.boolean().optional(),
   mysqlVersion: MysqlVersionSchema,
 }).refine(
   (data) => data.starterKit !== 'breeze' || data.breezeStack !== undefined,
   { message: 'Breeze stack is required when starter kit is breeze', path: ['breezeStack'] }
+).refine(
+  (data) => data.starterKit !== 'jetstream' || data.jetstreamStack !== undefined,
+  { message: 'Jetstream stack is required when starter kit is jetstream', path: ['jetstreamStack'] }
 );
 
 /**
