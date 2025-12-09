@@ -234,16 +234,63 @@ describe('Security Module', () => {
       expect(result.safe).toBe(false);
     });
 
-    it('should handle macOS platform', () => {
-      const originalPlatform = process.platform;
-      Object.defineProperty(process, 'platform', { value: 'darwin' });
+    describe('macOS (darwin)', () => {
+      let originalPlatform: NodeJS.Platform;
 
-      const result = buildTerminalCommand('/path/to/project');
-      expect(result.command).toBe('open');
-      expect(result.args).toContain('Terminal');
-      expect(result.useShell).toBe(false);
+      beforeEach(() => {
+        originalPlatform = process.platform;
+        Object.defineProperty(process, 'platform', { value: 'darwin' });
+      });
 
-      Object.defineProperty(process, 'platform', { value: originalPlatform });
+      afterEach(() => {
+        Object.defineProperty(process, 'platform', { value: originalPlatform });
+      });
+
+      it('should use Terminal.app by default', () => {
+        const result = buildTerminalCommand('/path/to/project');
+        expect(result.command).toBe('osascript');
+        expect(result.args.join(' ')).toContain('tell application "Terminal"');
+        expect(result.useShell).toBe(false);
+      });
+
+      it('should use Terminal.app when explicitly specified', () => {
+        const result = buildTerminalCommand('/path/to/project', 'Terminal');
+        expect(result.command).toBe('osascript');
+        expect(result.args.join(' ')).toContain('tell application "Terminal"');
+      });
+
+      it('should use iTerm when specified', () => {
+        const result = buildTerminalCommand('/path/to/project', 'iTerm');
+        expect(result.command).toBe('osascript');
+        expect(result.args.join(' ')).toContain('tell application "iTerm"');
+        expect(result.args.join(' ')).toContain('create window with default profile');
+      });
+
+      it('should escape single quotes in path for Terminal', () => {
+        const result = buildTerminalCommand("/path/with'quote", 'Terminal');
+        expect(result.args.join(' ')).toContain("'\\''");
+      });
+
+      it('should escape single quotes in path for iTerm', () => {
+        const result = buildTerminalCommand("/path/with'quote", 'iTerm');
+        expect(result.args.join(' ')).toContain("'\\''");
+      });
+
+      it('should handle paths with spaces', () => {
+        const result = buildTerminalCommand('/path/with spaces/project', 'iTerm');
+        expect(result.safe).toBe(true);
+        expect(result.args.join(' ')).toContain("cd '/path/with spaces/project'");
+      });
+
+      it('should include cd command in Terminal.app script', () => {
+        const result = buildTerminalCommand('/my/project', 'Terminal');
+        expect(result.args.join(' ')).toContain("do script \"cd '/my/project'\"");
+      });
+
+      it('should include cd command in iTerm script', () => {
+        const result = buildTerminalCommand('/my/project', 'iTerm');
+        expect(result.args.join(' ')).toContain("write text \"cd '/my/project'\"");
+      });
     });
 
     it('should handle Windows platform', () => {

@@ -6,7 +6,7 @@
  */
 
 import * as LocalMain from '@getflywheel/local/main';
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain, BrowserWindow, app } from 'electron';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs-extra';
@@ -47,6 +47,7 @@ import {
   buildArtisanArgs,
   buildVSCodeCommand,
   buildTerminalCommand,
+  MacTerminalApp,
 } from '../common/security';
 
 /**
@@ -66,6 +67,38 @@ const creationProgress = new Map<string, {
   message: string;
   error?: string;
 }>();
+
+/**
+ * Get Local's default terminal preference.
+ * Reads from ~/Library/Application Support/Local/settings-default-apps.json
+ *
+ * @returns The terminal app preference ('Terminal' or 'iTerm')
+ */
+function getLocalTerminalPreference(): MacTerminalApp {
+  // Only relevant on macOS
+  if (process.platform !== 'darwin') {
+    return 'Terminal';
+  }
+
+  try {
+    const userDataPath = app.getPath('userData');
+    const settingsPath = path.join(userDataPath, 'settings-default-apps.json');
+
+    if (fs.existsSync(settingsPath)) {
+      const settings = fs.readJsonSync(settingsPath);
+      if (settings.defaultTerminal === 'iTerm') {
+        return 'iTerm';
+      }
+    }
+  } catch (error) {
+    // Silently fall back to Terminal.app if we can't read preference
+    const services = LocalMain.getServiceContainer().cradle as any;
+    const { localLogger } = services;
+    localLogger.warn('[LocalLaravel] Could not read terminal preference:', error);
+  }
+
+  return 'Terminal'; // Default fallback
+}
 
 /**
  * Main addon entry function.
@@ -957,8 +990,11 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
       // Use secure path resolution with traversal protection
       const projectPath = getSafeAppPath(site.path);
 
-      // Build secure terminal command
-      const termCommand = buildTerminalCommand(projectPath);
+      // Get Local's terminal preference
+      const terminalApp = getLocalTerminalPreference();
+
+      // Build secure terminal command for the preferred terminal
+      const termCommand = buildTerminalCommand(projectPath, terminalApp);
       if (!termCommand.safe) {
         return { success: false, error: 'Invalid project path' };
       }
@@ -976,13 +1012,13 @@ function registerIpcHandlers(_context: LocalMain.AddonMainContext): void {
         child.unref(); // Don't wait for terminal to exit
 
         child.on('error', (error: Error) => {
-          localLogger.error(`[LocalLaravel] Failed to open terminal: ${error.message}`);
+          localLogger.error(`[LocalLaravel] Failed to open ${terminalApp}: ${error.message}`);
           resolve({ success: false, error: error.message });
         });
 
         // Give it a moment to start, then return success
         setTimeout(() => {
-          localLogger.info(`[LocalLaravel] Opened terminal for ${site.name} at ${projectPath}`);
+          localLogger.info(`[LocalLaravel] Opened ${terminalApp} for ${site.name} at ${projectPath}`);
           resolve({ success: true });
         }, 100);
       });

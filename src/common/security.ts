@@ -195,10 +195,22 @@ export function buildVSCodeCommand(projectPath: string): {
 }
 
 /**
+ * Terminal application types supported on macOS.
+ * Corresponds to Local's defaultTerminal preference values.
+ */
+export type MacTerminalApp = 'Terminal' | 'iTerm';
+
+/**
  * Validate and build a safe shell command for opening terminal.
  * Returns the command, args, and whether it's safe to execute.
+ *
+ * @param projectPath - The directory to open in terminal
+ * @param terminalApp - macOS terminal app preference (default: 'Terminal')
  */
-export function buildTerminalCommand(projectPath: string): {
+export function buildTerminalCommand(
+  projectPath: string,
+  terminalApp: MacTerminalApp = 'Terminal'
+): {
   command: string;
   args: string[];
   useShell: boolean;
@@ -219,14 +231,41 @@ export function buildTerminalCommand(projectPath: string): {
         useShell: true, // Required for cmd /K
         safe: true,
       };
+
     case 'darwin':
-      // macOS: use open with Terminal.app
-      return {
-        command: 'open',
-        args: ['-a', 'Terminal', projectPath],
-        useShell: false,
-        safe: true,
-      };
+      // macOS: use AppleScript to control terminal apps
+      // Escape path for AppleScript (handle single quotes)
+      const escapedPath = projectPath.replace(/'/g, "'\\''");
+
+      if (terminalApp === 'iTerm') {
+        // iTerm2: Use AppleScript to open new window at directory
+        return {
+          command: 'osascript',
+          args: [
+            '-e', 'tell application "iTerm"',
+            '-e', 'activate',
+            '-e', 'set newWindow to (create window with default profile)',
+            '-e', `tell current session of newWindow to write text "cd '${escapedPath}'"`,
+            '-e', 'end tell',
+          ],
+          useShell: false,
+          safe: true,
+        };
+      } else {
+        // Terminal.app: Use AppleScript to open new window at directory
+        return {
+          command: 'osascript',
+          args: [
+            '-e', 'tell application "Terminal"',
+            '-e', 'activate',
+            '-e', `do script "cd '${escapedPath}'"`,
+            '-e', 'end tell',
+          ],
+          useShell: false,
+          safe: true,
+        };
+      }
+
     default: // linux
       // Linux: try gnome-terminal first
       return {
