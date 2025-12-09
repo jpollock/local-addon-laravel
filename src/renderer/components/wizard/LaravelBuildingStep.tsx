@@ -10,6 +10,7 @@
 import * as React from 'react';
 import type { WizardStepProps, CreationProgress } from '../../../common/types';
 import { IPC_CHANNELS, CREATION_STAGES } from '../../../common/constants';
+import { getThemeColors, onThemeChange, type ThemeColors } from '../../../common/theme';
 
 // Get ipcRenderer - try multiple methods for Local's environment
 const getIpcRenderer = (): any => {
@@ -46,6 +47,7 @@ interface State {
   error: string | null;
   isComplete: boolean;
   siteId: string | null;
+  themeColors: ThemeColors;
 }
 
 /**
@@ -57,6 +59,7 @@ interface State {
 export class LaravelBuildingStep extends React.Component<WizardStepProps, State> {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private ipcRenderer: any;
+  private themeCleanup: (() => void) | null = null;
 
   constructor(props: WizardStepProps) {
     super(props);
@@ -68,6 +71,7 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
       error: null,
       isComplete: false,
       siteId: null,
+      themeColors: getThemeColors(),
     };
 
     // Get ipcRenderer
@@ -75,12 +79,19 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
   }
 
   componentDidMount(): void {
+    this.themeCleanup = onThemeChange(() => {
+      this.setState({ themeColors: getThemeColors() });
+    });
     this.startSiteCreation();
   }
 
   componentWillUnmount(): void {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
+    }
+    if (this.themeCleanup) {
+      this.themeCleanup();
+      this.themeCleanup = null;
     }
   }
 
@@ -218,7 +229,16 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
   };
 
   render(): React.ReactNode {
-    const { progress, message, error, isComplete } = this.state;
+    const { progress, message, error, isComplete, themeColors } = this.state;
+    const colors = themeColors;
+
+    // Determine icon background color based on state
+    const getIconBg = () => {
+      if (error) return colors.errorBg;
+      if (isComplete) return colors.successBg;
+      // Light pink for in-progress state
+      return colors.panelBgSecondary;
+    };
 
     return React.createElement(
       'div',
@@ -238,12 +258,13 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
             width: '80px',
             height: '80px',
             margin: '0 auto 24px',
-            backgroundColor: error ? '#fed7d7' : isComplete ? '#c6f6d5' : '#fff5f4',
+            backgroundColor: getIconBg(),
             borderRadius: '50%',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: '36px',
+            color: error ? colors.errorText : isComplete ? colors.successText : colors.laravelRed,
           },
         },
         error ? '\u2717' : isComplete ? '\u2713' : '\u2699'
@@ -256,7 +277,7 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
           style: {
             fontSize: '24px',
             fontWeight: 600,
-            color: '#1a1a1a',
+            color: colors.textPrimary,
             marginBottom: '8px',
           },
         },
@@ -273,7 +294,7 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
         {
           style: {
             fontSize: '14px',
-            color: error ? '#c53030' : '#666',
+            color: error ? colors.errorText : colors.textSecondary,
             marginBottom: '32px',
           },
         },
@@ -289,7 +310,7 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
             style: {
               width: '100%',
               height: '8px',
-              backgroundColor: '#e2e8f0',
+              backgroundColor: colors.border,
               borderRadius: '4px',
               overflow: 'hidden',
               marginBottom: '16px',
@@ -299,7 +320,7 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
             style: {
               width: `${progress}%`,
               height: '100%',
-              backgroundColor: '#f55247',
+              backgroundColor: colors.laravelRed,
               borderRadius: '4px',
               transition: 'width 0.3s ease',
             },
@@ -314,7 +335,7 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
           {
             style: {
               fontSize: '14px',
-              color: '#666',
+              color: colors.textSecondary,
               marginBottom: '24px',
             },
           },
@@ -345,9 +366,9 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
                   padding: '12px 24px',
                   fontSize: '14px',
                   fontWeight: 500,
-                  color: '#666',
-                  backgroundColor: '#f5f5f5',
-                  border: '1px solid #d1d5db',
+                  color: colors.textSecondary,
+                  backgroundColor: colors.panelBgSecondary,
+                  border: `1px solid ${colors.inputBorder}`,
                   borderRadius: '6px',
                   cursor: 'pointer',
                 },
@@ -363,7 +384,7 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
                   fontSize: '14px',
                   fontWeight: 500,
                   color: '#fff',
-                  backgroundColor: '#f55247',
+                  backgroundColor: colors.laravelRed,
                   border: 'none',
                   borderRadius: '6px',
                   cursor: 'pointer',
@@ -384,16 +405,16 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
                 fontSize: '16px',
                 fontWeight: 500,
                 color: '#fff',
-                backgroundColor: '#f55247',
+                backgroundColor: colors.laravelRed,
                 border: 'none',
                 borderRadius: '6px',
                 cursor: 'pointer',
               },
               onMouseOver: (e: React.MouseEvent<HTMLButtonElement>) => {
-                e.currentTarget.style.backgroundColor = '#e04438';
+                e.currentTarget.style.backgroundColor = colors.laravelRedHover;
               },
               onMouseOut: (e: React.MouseEvent<HTMLButtonElement>) => {
-                e.currentTarget.style.backgroundColor = '#f55247';
+                e.currentTarget.style.backgroundColor = colors.laravelRed;
               },
             },
             'View Site'
@@ -409,7 +430,7 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
             style: {
               marginTop: '40px',
               textAlign: 'left' as const,
-              backgroundColor: '#f8f9fa',
+              backgroundColor: colors.panelBgSecondary,
               borderRadius: '8px',
               padding: '20px',
             },
@@ -420,7 +441,7 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
               style: {
                 fontSize: '12px',
                 fontWeight: 500,
-                color: '#666',
+                color: colors.textSecondary,
                 textTransform: 'uppercase' as const,
                 letterSpacing: '0.5px',
                 marginBottom: '12px',
@@ -454,7 +475,7 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
                     width: '20px',
                     height: '20px',
                     borderRadius: '50%',
-                    backgroundColor: isDone ? '#48bb78' : isActive ? '#f55247' : '#e2e8f0',
+                    backgroundColor: isDone ? colors.successText : isActive ? colors.laravelRed : colors.border,
                     color: '#fff',
                     display: 'flex',
                     alignItems: 'center',
@@ -471,7 +492,7 @@ export class LaravelBuildingStep extends React.Component<WizardStepProps, State>
                 {
                   style: {
                     fontSize: '13px',
-                    color: isActive ? '#f55247' : '#333',
+                    color: isActive ? colors.laravelRed : colors.textPrimary,
                     fontWeight: isActive ? 500 : 400,
                   },
                 },

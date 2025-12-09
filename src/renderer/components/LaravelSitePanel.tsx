@@ -12,6 +12,7 @@
 import * as React from 'react';
 import { IPC_CHANNELS, QUICK_ARTISAN_COMMANDS } from '../../common/constants';
 import type { LaravelPanelProps, ArtisanResult, FailedJob } from '../../common/types';
+import { getThemeColors, onThemeChange, type ThemeColors } from '../../common/theme';
 
 /**
  * CSS to hide WordPress-specific UI elements for Laravel sites.
@@ -95,6 +96,8 @@ interface State {
   failedJobs: FailedJob[];
   isLoadingJobs: boolean;
   processingJobId: string | null;
+  // Theme
+  themeColors: ThemeColors;
 }
 
 /** Style element ID for Laravel CSS injection */
@@ -116,6 +119,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
   private ipcRenderer: any;
   private observer: MutationObserver | null = null;
   private statusPollInterval: ReturnType<typeof setInterval> | null = null;
+  private themeCleanup: (() => void) | null = null;
 
   constructor(props: LaravelPanelProps) {
     super(props);
@@ -150,6 +154,8 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
       failedJobs: [],
       isLoadingJobs: false,
       processingJobId: null,
+      // Theme - initialize with current theme
+      themeColors: getThemeColors(),
     };
 
     this.ipcRenderer = getIpcRenderer();
@@ -197,6 +203,11 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
     this.statusPollInterval = setInterval(() => {
       this.fetchSiteStatus();
     }, 2000);
+
+    // Subscribe to theme changes
+    this.themeCleanup = onThemeChange(() => {
+      this.setState({ themeColors: getThemeColors() });
+    });
   }
 
   componentWillUnmount(): void {
@@ -210,6 +221,12 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
     if (this.statusPollInterval) {
       clearInterval(this.statusPollInterval);
       this.statusPollInterval = null;
+    }
+
+    // Clean up theme subscription
+    if (this.themeCleanup) {
+      this.themeCleanup();
+      this.themeCleanup = null;
     }
 
     // Remove the class when leaving the site
@@ -830,7 +847,11 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
       failedJobs,
       isLoadingJobs,
       processingJobId,
+      themeColors,
     } = this.state;
+
+    // Alias theme colors for cleaner code
+    const colors = themeColors;
 
     const customOptions = site.customOptions || {};
     const laravelVersion = customOptions.laravelVersion || 'Unknown';
@@ -859,9 +880,9 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
       {
         style: {
           marginTop: '24px',
-          backgroundColor: '#fff',
+          backgroundColor: colors.panelBg,
           borderRadius: '8px',
-          border: '1px solid #e5e7eb',
+          border: `1px solid ${colors.border}`,
           overflow: 'hidden',
         },
       },
@@ -871,7 +892,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
         {
           style: {
             padding: '16px 20px',
-            borderBottom: '1px solid #e5e7eb',
+            borderBottom: `1px solid ${colors.border}`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -887,7 +908,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
               style: {
                 width: '32px',
                 height: '32px',
-                backgroundColor: '#f55247',
+                backgroundColor: colors.laravelRed,
                 borderRadius: '6px',
                 display: 'flex',
                 alignItems: 'center',
@@ -909,7 +930,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                   margin: 0,
                   fontSize: '16px',
                   fontWeight: 600,
-                  color: '#1a1a1a',
+                  color: colors.textPrimary,
                 },
               },
               'Laravel'
@@ -920,7 +941,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                 style: {
                   margin: 0,
                   fontSize: '12px',
-                  color: '#666',
+                  color: colors.textSecondary,
                 },
               },
               `Version ${laravelVersion}${starterKitDisplay ? ` with ${starterKitDisplay}` : ''}`
@@ -935,8 +956,8 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
               padding: '4px 8px',
               fontSize: '11px',
               fontWeight: 500,
-              backgroundColor: isRunning ? '#c6f6d5' : '#fed7d7',
-              color: isRunning ? '#22543d' : '#742a2a',
+              backgroundColor: isRunning ? colors.successBg : colors.errorBg,
+              color: isRunning ? colors.successText : colors.errorText,
               borderRadius: '4px',
             },
           },
@@ -955,7 +976,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
               margin: '0 0 12px 0',
               fontSize: '12px',
               fontWeight: 500,
-              color: '#666',
+              color: colors.textSecondary,
               textTransform: 'uppercase' as const,
               letterSpacing: '0.5px',
             },
@@ -984,9 +1005,9 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                   padding: '10px 12px',
                   fontSize: '12px',
                   fontWeight: 500,
-                  color: isDangerous ? '#c53030' : '#333',
-                  backgroundColor: '#f8f9fa',
-                  border: isDangerous ? '1px solid #fed7d7' : '1px solid #e5e7eb',
+                  color: isDangerous ? colors.errorText : colors.textPrimary,
+                  backgroundColor: colors.panelBgSecondary,
+                  border: isDangerous ? `1px solid ${colors.errorBg}` : `1px solid ${colors.border}`,
                   borderRadius: '6px',
                   cursor: isRunning && !isRunningCommand ? 'pointer' : 'not-allowed',
                   opacity: isRunning ? 1 : 0.5,
@@ -994,11 +1015,11 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                 },
                 onMouseOver: (e: React.MouseEvent<HTMLButtonElement>) => {
                   if (isRunning && !isRunningCommand) {
-                    e.currentTarget.style.backgroundColor = isDangerous ? '#fed7d7' : '#e5e7eb';
+                    e.currentTarget.style.backgroundColor = isDangerous ? colors.errorBg : colors.border;
                   }
                 },
                 onMouseOut: (e: React.MouseEvent<HTMLButtonElement>) => {
-                  e.currentTarget.style.backgroundColor = '#f8f9fa';
+                  e.currentTarget.style.backgroundColor = colors.panelBgSecondary;
                 },
               },
               cmd.label
@@ -1013,7 +1034,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
         {
           style: {
             padding: '16px 20px',
-            borderTop: '1px solid #e5e7eb',
+            borderTop: `1px solid ${colors.border}`,
           },
         },
         React.createElement(
@@ -1023,7 +1044,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
               margin: '0 0 12px 0',
               fontSize: '12px',
               fontWeight: 500,
-              color: '#666',
+              color: colors.textSecondary,
               textTransform: 'uppercase' as const,
               letterSpacing: '0.5px',
             },
@@ -1053,10 +1074,11 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
               padding: '10px 12px',
               fontSize: '13px',
               fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
-              border: '1px solid #e5e7eb',
+              border: `1px solid ${colors.inputBorder}`,
               borderRadius: '6px',
               outline: 'none',
-              backgroundColor: isRunning ? '#fff' : '#f8f9fa',
+              backgroundColor: isRunning ? colors.inputBg : colors.panelBgSecondary,
+              color: colors.textPrimary,
             },
           }),
           React.createElement(
@@ -1069,7 +1091,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                 fontSize: '12px',
                 fontWeight: 500,
                 color: '#fff',
-                backgroundColor: isRunning && customCommand.trim() ? '#f55247' : '#ccc',
+                backgroundColor: isRunning && customCommand.trim() ? colors.laravelRed : colors.textMuted,
                 border: 'none',
                 borderRadius: '6px',
                 cursor: isRunning && customCommand.trim() ? 'pointer' : 'not-allowed',
@@ -1085,9 +1107,9 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
             {
               style: {
                 marginTop: '4px',
-                border: '1px solid #e5e7eb',
+                border: `1px solid ${colors.border}`,
                 borderRadius: '6px',
-                backgroundColor: '#fff',
+                backgroundColor: colors.panelBg,
                 maxHeight: '150px',
                 overflow: 'auto',
               },
@@ -1103,13 +1125,14 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                     fontSize: '12px',
                     fontFamily: 'Monaco, Menlo, monospace',
                     cursor: 'pointer',
-                    borderBottom: index < commandHistory.length - 1 ? '1px solid #f0f0f0' : 'none',
+                    color: colors.textPrimary,
+                    borderBottom: index < commandHistory.length - 1 ? `1px solid ${colors.borderLight}` : 'none',
                   },
                   onMouseOver: (e: React.MouseEvent<HTMLDivElement>) => {
-                    e.currentTarget.style.backgroundColor = '#f8f9fa';
+                    e.currentTarget.style.backgroundColor = colors.panelBgSecondary;
                   },
                   onMouseOut: (e: React.MouseEvent<HTMLDivElement>) => {
-                    e.currentTarget.style.backgroundColor = '#fff';
+                    e.currentTarget.style.backgroundColor = colors.panelBg;
                   },
                 },
                 cmd
@@ -1123,7 +1146,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
         'div',
         {
           style: {
-            borderTop: '1px solid #e5e7eb',
+            borderTop: `1px solid ${colors.border}`,
           },
         },
         React.createElement(
@@ -1145,7 +1168,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                 margin: 0,
                 fontSize: '12px',
                 fontWeight: 500,
-                color: '#666',
+                color: colors.textSecondary,
                 textTransform: 'uppercase' as const,
                 letterSpacing: '0.5px',
                 display: 'flex',
@@ -1167,9 +1190,9 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
               style: {
                 padding: '4px 8px',
                 fontSize: '11px',
-                color: '#666',
-                backgroundColor: '#f8f9fa',
-                border: '1px solid #e5e7eb',
+                color: colors.textSecondary,
+                backgroundColor: colors.panelBgSecondary,
+                border: `1px solid ${colors.border}`,
                 borderRadius: '4px',
                 cursor: 'pointer',
               },
@@ -1185,6 +1208,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                 padding: '0 20px 16px 20px',
               },
             },
+            // Log viewer always uses dark theme (industry convention)
             React.createElement(
               'pre',
               {
@@ -1212,7 +1236,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
         'div',
         {
           style: {
-            borderTop: '1px solid #e5e7eb',
+            borderTop: `1px solid ${colors.border}`,
           },
         },
         React.createElement(
@@ -1234,7 +1258,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                 margin: 0,
                 fontSize: '12px',
                 fontWeight: 500,
-                color: '#666',
+                color: colors.textSecondary,
                 textTransform: 'uppercase' as const,
                 letterSpacing: '0.5px',
                 display: 'flex',
@@ -1258,7 +1282,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                   padding: '4px 12px',
                   fontSize: '11px',
                   color: '#fff',
-                  backgroundColor: isSavingEnv ? '#ccc' : '#f55247',
+                  backgroundColor: isSavingEnv ? colors.textMuted : colors.laravelRed,
                   border: 'none',
                   borderRadius: '4px',
                   cursor: isSavingEnv ? 'not-allowed' : 'pointer',
@@ -1278,10 +1302,11 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
             isLoadingEnv
               ? React.createElement(
                   'div',
-                  { style: { padding: '20px', textAlign: 'center' as const, color: '#666' } },
+                  { style: { padding: '20px', textAlign: 'center' as const, color: colors.textSecondary } },
                   'Loading .env...'
                 )
-              : React.createElement('textarea', {
+              : // .env editor always uses dark theme (code editor convention)
+                React.createElement('textarea', {
                   value: envRaw,
                   onChange: this.handleEnvRawChange,
                   style: {
@@ -1290,7 +1315,9 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                     padding: '12px',
                     fontSize: '12px',
                     fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
-                    border: '1px solid #e5e7eb',
+                    backgroundColor: '#1a1a1a',
+                    color: '#e5e7eb',
+                    border: `1px solid ${colors.border}`,
                     borderRadius: '6px',
                     resize: 'vertical' as const,
                     outline: 'none',
@@ -1304,7 +1331,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
         'div',
         {
           style: {
-            borderTop: '1px solid #e5e7eb',
+            borderTop: `1px solid ${colors.border}`,
           },
         },
         React.createElement(
@@ -1326,7 +1353,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                 margin: 0,
                 fontSize: '12px',
                 fontWeight: 500,
-                color: '#666',
+                color: colors.textSecondary,
                 textTransform: 'uppercase' as const,
                 letterSpacing: '0.5px',
                 display: 'flex',
@@ -1343,8 +1370,8 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                   style: {
                     padding: '2px 6px',
                     fontSize: '10px',
-                    backgroundColor: '#fed7d7',
-                    color: '#c53030',
+                    backgroundColor: colors.errorBg,
+                    color: colors.errorText,
                     borderRadius: '10px',
                     fontWeight: 600,
                   },
@@ -1368,7 +1395,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                     padding: '4px 8px',
                     fontSize: '11px',
                     color: '#fff',
-                    backgroundColor: processingJobId ? '#ccc' : '#48bb78',
+                    backgroundColor: processingJobId ? colors.textMuted : colors.successText,
                     border: 'none',
                     borderRadius: '4px',
                     cursor: processingJobId ? 'not-allowed' : 'pointer',
@@ -1387,9 +1414,9 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                 style: {
                   padding: '4px 8px',
                   fontSize: '11px',
-                  color: '#666',
-                  backgroundColor: '#f8f9fa',
-                  border: '1px solid #e5e7eb',
+                  color: colors.textSecondary,
+                  backgroundColor: colors.panelBgSecondary,
+                  border: `1px solid ${colors.border}`,
                   borderRadius: '4px',
                   cursor: 'pointer',
                 },
@@ -1409,7 +1436,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
             isLoadingJobs
               ? React.createElement(
                   'div',
-                  { style: { padding: '20px', textAlign: 'center' as const, color: '#666' } },
+                  { style: { padding: '20px', textAlign: 'center' as const, color: colors.textSecondary } },
                   'Loading failed jobs...'
                 )
               : failedJobs.length === 0
@@ -1419,10 +1446,10 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                     style: {
                       padding: '20px',
                       textAlign: 'center' as const,
-                      color: '#48bb78',
-                      backgroundColor: '#f0fff4',
+                      color: colors.successText,
+                      backgroundColor: colors.successBg,
                       borderRadius: '6px',
-                      border: '1px solid #c6f6d5',
+                      border: `1px solid ${colors.successBg}`,
                     },
                   },
                   '✓ No failed jobs'
@@ -1447,14 +1474,14 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                         'tr',
                         {
                           style: {
-                            backgroundColor: '#f8f9fa',
-                            borderBottom: '1px solid #e5e7eb',
+                            backgroundColor: colors.panelBgSecondary,
+                            borderBottom: `1px solid ${colors.border}`,
                           },
                         },
-                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'left' as const, fontWeight: 500 } }, 'ID'),
-                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'left' as const, fontWeight: 500 } }, 'Queue'),
-                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'left' as const, fontWeight: 500 } }, 'Failed At'),
-                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'right' as const, fontWeight: 500 } }, 'Actions')
+                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'left' as const, fontWeight: 500, color: colors.textPrimary } }, 'ID'),
+                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'left' as const, fontWeight: 500, color: colors.textPrimary } }, 'Queue'),
+                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'left' as const, fontWeight: 500, color: colors.textPrimary } }, 'Failed At'),
+                        React.createElement('th', { style: { padding: '8px 12px', textAlign: 'right' as const, fontWeight: 500, color: colors.textPrimary } }, 'Actions')
                       )
                     ),
                     React.createElement(
@@ -1466,7 +1493,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                           {
                             key: job.id,
                             style: {
-                              borderBottom: '1px solid #f0f0f0',
+                              borderBottom: `1px solid ${colors.borderLight}`,
                             },
                           },
                           React.createElement(
@@ -1475,13 +1502,14 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                               style: {
                                 padding: '8px 12px',
                                 fontFamily: 'Monaco, Menlo, monospace',
+                                color: colors.textPrimary,
                               },
                             },
                             job.id
                           ),
                           React.createElement(
                             'td',
-                            { style: { padding: '8px 12px' } },
+                            { style: { padding: '8px 12px', color: colors.textPrimary } },
                             job.queue
                           ),
                           React.createElement(
@@ -1489,7 +1517,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                             {
                               style: {
                                 padding: '8px 12px',
-                                color: '#666',
+                                color: colors.textSecondary,
                                 fontSize: '11px',
                               },
                             },
@@ -1512,7 +1540,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                                   padding: '4px 8px',
                                   fontSize: '10px',
                                   color: '#fff',
-                                  backgroundColor: processingJobId === job.id ? '#ccc' : '#48bb78',
+                                  backgroundColor: processingJobId === job.id ? colors.textMuted : colors.successText,
                                   border: 'none',
                                   borderRadius: '3px',
                                   cursor: processingJobId ? 'not-allowed' : 'pointer',
@@ -1529,9 +1557,9 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                                 style: {
                                   padding: '4px 8px',
                                   fontSize: '10px',
-                                  color: '#c53030',
-                                  backgroundColor: '#fff',
-                                  border: '1px solid #fed7d7',
+                                  color: colors.errorText,
+                                  backgroundColor: colors.panelBg,
+                                  border: `1px solid ${colors.errorBg}`,
                                   borderRadius: '3px',
                                   cursor: processingJobId ? 'not-allowed' : 'pointer',
                                 },
@@ -1561,9 +1589,9 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                           style: {
                             padding: '6px 12px',
                             fontSize: '11px',
-                            color: '#c53030',
-                            backgroundColor: '#fff',
-                            border: '1px solid #fed7d7',
+                            color: colors.errorText,
+                            backgroundColor: colors.panelBg,
+                            border: `1px solid ${colors.errorBg}`,
                             borderRadius: '4px',
                             cursor: processingJobId ? 'not-allowed' : 'pointer',
                           },
@@ -1581,7 +1609,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
           'div',
           {
             style: {
-              borderTop: '1px solid #e5e7eb',
+              borderTop: `1px solid ${colors.border}`,
               padding: '16px 20px',
             },
           },
@@ -1602,7 +1630,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                   margin: 0,
                   fontSize: '12px',
                   fontWeight: 500,
-                  color: '#666',
+                  color: colors.textSecondary,
                   textTransform: 'uppercase' as const,
                   letterSpacing: '0.5px',
                 },
@@ -1618,7 +1646,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                   style: {
                     padding: '4px 8px',
                     fontSize: '11px',
-                    color: '#666',
+                    color: colors.textSecondary,
                     backgroundColor: 'transparent',
                     border: 'none',
                     cursor: 'pointer',
@@ -1631,8 +1659,8 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
             'div',
             {
               style: {
-                backgroundColor: lastCommandSuccess === false ? '#fff5f5' : '#f8f9fa',
-                border: `1px solid ${lastCommandSuccess === false ? '#fed7d7' : '#e5e7eb'}`,
+                backgroundColor: lastCommandSuccess === false ? colors.errorBg : colors.panelBgSecondary,
+                border: `1px solid ${lastCommandSuccess === false ? colors.errorBg : colors.border}`,
                 borderRadius: '6px',
                 padding: '12px',
                 maxHeight: '200px',
@@ -1647,7 +1675,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      color: '#666',
+                      color: colors.textSecondary,
                     },
                   },
                   React.createElement(
@@ -1657,8 +1685,8 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                         display: 'inline-block',
                         width: '12px',
                         height: '12px',
-                        border: '2px solid #e5e7eb',
-                        borderTopColor: '#f55247',
+                        border: `2px solid ${colors.border}`,
+                        borderTopColor: colors.laravelRed,
                         borderRadius: '50%',
                         animation: 'spin 1s linear infinite',
                       },
@@ -1675,7 +1703,7 @@ export class LaravelSitePanel extends React.Component<LaravelPanelProps, State> 
                       fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-all',
-                      color: lastCommandSuccess === false ? '#c53030' : '#333',
+                      color: lastCommandSuccess === false ? colors.errorText : colors.textPrimary,
                     },
                   },
                   lastCommandOutput || 'No output'

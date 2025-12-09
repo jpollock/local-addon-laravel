@@ -10,6 +10,7 @@
 import * as React from 'react';
 import type { WizardStepProps } from '../../../common/types';
 import { ROUTES } from '../../../common/constants';
+import { getThemeColors, onThemeChange, type ThemeColors } from '../../../common/theme';
 
 interface State {
   siteName: string;
@@ -18,6 +19,7 @@ interface State {
     siteName?: string;
     siteDomain?: string;
   };
+  themeColors: ThemeColors;
 }
 
 /**
@@ -28,6 +30,8 @@ interface State {
  * - Site domain (e.g., mysite.local)
  */
 export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
+  private themeCleanup: (() => void) | null = null;
+
   constructor(props: WizardStepProps) {
     super(props);
 
@@ -35,7 +39,21 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
       siteName: props.siteSettings.siteName || '',
       siteDomain: props.siteSettings.siteDomain || '',
       errors: {},
+      themeColors: getThemeColors(),
     };
+  }
+
+  componentDidMount(): void {
+    this.themeCleanup = onThemeChange(() => {
+      this.setState({ themeColors: getThemeColors() });
+    });
+  }
+
+  componentWillUnmount(): void {
+    if (this.themeCleanup) {
+      this.themeCleanup();
+      this.themeCleanup = null;
+    }
   }
 
   /**
@@ -114,7 +132,8 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
   };
 
   render(): React.ReactNode {
-    const { siteName, siteDomain, errors } = this.state;
+    const { siteName, siteDomain, errors, themeColors } = this.state;
+    const colors = themeColors;
 
     return React.createElement(
       'div',
@@ -135,7 +154,7 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
             style: {
               fontSize: '28px',
               fontWeight: 600,
-              color: '#1a1a1a',
+              color: colors.textPrimary,
               marginBottom: '8px',
             },
           },
@@ -146,7 +165,7 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
           {
             style: {
               fontSize: '14px',
-              color: '#666',
+              color: colors.textSecondary,
             },
           },
           "Let's set up your new Laravel project"
@@ -170,7 +189,7 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
                 marginBottom: '8px',
                 fontSize: '14px',
                 fontWeight: 500,
-                color: '#333',
+                color: colors.textPrimary,
               },
             },
             'Site Name'
@@ -184,10 +203,12 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
               width: '100%',
               padding: '12px 16px',
               fontSize: '14px',
-              border: errors.siteName ? '2px solid #e53e3e' : '1px solid #d1d5db',
+              border: errors.siteName ? `2px solid ${colors.errorText}` : `1px solid ${colors.inputBorder}`,
               borderRadius: '6px',
               outline: 'none',
               boxSizing: 'border-box' as const,
+              backgroundColor: colors.inputBg,
+              color: colors.textPrimary,
             },
           }),
           errors.siteName &&
@@ -197,7 +218,7 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
                 style: {
                   marginTop: '4px',
                   fontSize: '12px',
-                  color: '#e53e3e',
+                  color: colors.errorText,
                 },
               },
               errors.siteName
@@ -216,7 +237,7 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
                 marginBottom: '8px',
                 fontSize: '14px',
                 fontWeight: 500,
-                color: '#333',
+                color: colors.textPrimary,
               },
             },
             'Domain'
@@ -230,10 +251,12 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
               width: '100%',
               padding: '12px 16px',
               fontSize: '14px',
-              border: errors.siteDomain ? '2px solid #e53e3e' : '1px solid #d1d5db',
+              border: errors.siteDomain ? `2px solid ${colors.errorText}` : `1px solid ${colors.inputBorder}`,
               borderRadius: '6px',
               outline: 'none',
               boxSizing: 'border-box' as const,
+              backgroundColor: colors.inputBg,
+              color: colors.textPrimary,
             },
           }),
           errors.siteDomain &&
@@ -243,7 +266,7 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
                 style: {
                   marginTop: '4px',
                   fontSize: '12px',
-                  color: '#e53e3e',
+                  color: colors.errorText,
                 },
               },
               errors.siteDomain
@@ -254,7 +277,7 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
               style: {
                 marginTop: '4px',
                 fontSize: '12px',
-                color: '#888',
+                color: colors.textMuted,
               },
             },
             'Your site will be accessible at http://' + (siteDomain || 'yoursite.local')
@@ -273,17 +296,17 @@ export class LaravelEntryStep extends React.Component<WizardStepProps, State> {
             fontSize: '16px',
             fontWeight: 500,
             color: '#fff',
-            backgroundColor: '#f55247', // Laravel red
+            backgroundColor: colors.laravelRed,
             border: 'none',
             borderRadius: '6px',
             cursor: 'pointer',
             transition: 'background-color 0.2s',
           },
           onMouseOver: (e: React.MouseEvent<HTMLButtonElement>) => {
-            e.currentTarget.style.backgroundColor = '#e04438';
+            e.currentTarget.style.backgroundColor = colors.laravelRedHover;
           },
           onMouseOut: (e: React.MouseEvent<HTMLButtonElement>) => {
-            e.currentTarget.style.backgroundColor = '#f55247';
+            e.currentTarget.style.backgroundColor = colors.laravelRed;
           },
         },
         'Continue'

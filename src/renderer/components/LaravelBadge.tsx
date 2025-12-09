@@ -8,10 +8,15 @@
  * All components must be class-based.
  */
 import * as React from 'react';
+import { getThemeColors, onThemeChange, type ThemeColors } from '../../common/theme';
 
 interface LaravelBadgeProps {
   size?: 'small' | 'medium';
   style?: React.CSSProperties;
+}
+
+interface LaravelBadgeState {
+  themeColors: ThemeColors;
 }
 
 /**
@@ -20,9 +25,32 @@ interface LaravelBadgeProps {
  * @param size - 'small' (14px, for sidebar) or 'medium' (20px, for header)
  * @param style - Additional styles to merge
  */
-export class LaravelBadge extends React.Component<LaravelBadgeProps> {
+export class LaravelBadge extends React.Component<LaravelBadgeProps, LaravelBadgeState> {
+  private themeCleanup: (() => void) | null = null;
+
+  constructor(props: LaravelBadgeProps) {
+    super(props);
+    this.state = {
+      themeColors: getThemeColors(),
+    };
+  }
+
+  componentDidMount(): void {
+    this.themeCleanup = onThemeChange(() => {
+      this.setState({ themeColors: getThemeColors() });
+    });
+  }
+
+  componentWillUnmount(): void {
+    if (this.themeCleanup) {
+      this.themeCleanup();
+      this.themeCleanup = null;
+    }
+  }
+
   render(): React.ReactNode {
     const { size = 'medium', style = {} } = this.props;
+    const { themeColors } = this.state;
 
     const dimensions =
       size === 'small'
@@ -44,7 +72,7 @@ export class LaravelBadge extends React.Component<LaravelBadgeProps> {
       {
         style: {
           ...dimensions,
-          backgroundColor: '#f55247', // Laravel red
+          backgroundColor: themeColors.laravelRed, // Laravel brand red (consistent across themes)
           color: '#fff',
           fontWeight: 700,
           display: 'flex',

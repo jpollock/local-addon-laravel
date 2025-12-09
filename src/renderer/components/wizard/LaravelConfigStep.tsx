@@ -17,6 +17,7 @@ import {
   DEFAULT_STARTER_KIT,
   JETSTREAM_STACKS,
 } from '../../../common/constants';
+import { getThemeColors, onThemeChange, type ThemeColors } from '../../../common/theme';
 
 interface State {
   laravelVersion: LaravelVersion;
@@ -26,6 +27,7 @@ interface State {
   jetstreamStack: JetstreamStack;
   jetstreamTeams: boolean;
   jetstreamApi: boolean;
+  themeColors: ThemeColors;
 }
 
 /**
@@ -67,6 +69,8 @@ const JETSTREAM_STACKS_UI: Array<{ value: JetstreamStack; label: string; descrip
  * - Breeze stack (if Breeze selected)
  */
 export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
+  private themeCleanup: (() => void) | null = null;
+
   constructor(props: WizardStepProps) {
     super(props);
 
@@ -78,7 +82,21 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
       jetstreamStack: (props.siteSettings.jetstreamStack as JetstreamStack) || 'livewire',
       jetstreamTeams: props.siteSettings.jetstreamTeams || false,
       jetstreamApi: props.siteSettings.jetstreamApi || false,
+      themeColors: getThemeColors(),
     };
+  }
+
+  componentDidMount(): void {
+    this.themeCleanup = onThemeChange(() => {
+      this.setState({ themeColors: getThemeColors() });
+    });
+  }
+
+  componentWillUnmount(): void {
+    if (this.themeCleanup) {
+      this.themeCleanup();
+      this.themeCleanup = null;
+    }
   }
 
   /**
@@ -175,7 +193,11 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
   }
 
   render(): React.ReactNode {
-    const { laravelVersion, phpVersion, starterKit, breezeStack, jetstreamStack, jetstreamTeams, jetstreamApi } = this.state;
+    const { laravelVersion, phpVersion, starterKit, breezeStack, jetstreamStack, jetstreamTeams, jetstreamApi, themeColors } = this.state;
+    const colors = themeColors;
+
+    // Selected state background for buttons
+    const selectedBg = colors.panelBgTertiary;
 
     return React.createElement(
       'div',
@@ -199,7 +221,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
             style: {
               fontSize: '28px',
               fontWeight: 600,
-              color: '#1a1a1a',
+              color: colors.textPrimary,
               marginBottom: '8px',
             },
           },
@@ -210,7 +232,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
           {
             style: {
               fontSize: '14px',
-              color: '#666',
+              color: colors.textSecondary,
             },
           },
           'Choose your PHP version, Laravel version, and optional starter kit'
@@ -229,7 +251,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
               marginBottom: '12px',
               fontSize: '14px',
               fontWeight: 500,
-              color: '#333',
+              color: colors.textPrimary,
             },
           },
           'Laravel Version'
@@ -246,9 +268,9 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 style: {
                   flex: 1,
                   padding: '16px',
-                  border: laravelVersion === key ? '2px solid #f55247' : '1px solid #d1d5db',
+                  border: laravelVersion === key ? `2px solid ${colors.laravelRed}` : `1px solid ${colors.inputBorder}`,
                   borderRadius: '8px',
-                  backgroundColor: laravelVersion === key ? '#fff5f4' : '#fff',
+                  backgroundColor: laravelVersion === key ? selectedBg : colors.panelBg,
                   cursor: 'pointer',
                   textAlign: 'left' as const,
                   transition: 'all 0.2s',
@@ -260,7 +282,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                   style: {
                     fontSize: '16px',
                     fontWeight: 500,
-                    color: laravelVersion === key ? '#f55247' : '#333',
+                    color: laravelVersion === key ? colors.laravelRed : colors.textPrimary,
                     marginBottom: '4px',
                   },
                 },
@@ -271,7 +293,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 {
                   style: {
                     fontSize: '12px',
-                    color: '#666',
+                    color: colors.textSecondary,
                   },
                 },
                 config.description
@@ -293,7 +315,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
               marginBottom: '12px',
               fontSize: '14px',
               fontWeight: 500,
-              color: '#333',
+              color: colors.textPrimary,
             },
           },
           'PHP Version'
@@ -310,9 +332,9 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 style: {
                   flex: 1,
                   padding: '12px',
-                  border: phpVersion === php.value ? '2px solid #f55247' : '1px solid #d1d5db',
+                  border: phpVersion === php.value ? `2px solid ${colors.laravelRed}` : `1px solid ${colors.inputBorder}`,
                   borderRadius: '8px',
-                  backgroundColor: phpVersion === php.value ? '#fff5f4' : '#fff',
+                  backgroundColor: phpVersion === php.value ? selectedBg : colors.panelBg,
                   cursor: 'pointer',
                   textAlign: 'center' as const,
                   transition: 'all 0.2s',
@@ -324,7 +346,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                   style: {
                     fontSize: '14px',
                     fontWeight: 500,
-                    color: phpVersion === php.value ? '#f55247' : '#333',
+                    color: phpVersion === php.value ? colors.laravelRed : colors.textPrimary,
                   },
                 },
                 php.label
@@ -334,7 +356,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 {
                   style: {
                     fontSize: '11px',
-                    color: '#888',
+                    color: colors.textMuted,
                     marginTop: '2px',
                   },
                 },
@@ -357,7 +379,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
               marginBottom: '12px',
               fontSize: '14px',
               fontWeight: 500,
-              color: '#333',
+              color: colors.textPrimary,
             },
           },
           'Starter Kit'
@@ -374,9 +396,9 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 style: {
                   flex: 1,
                   padding: '16px',
-                  border: starterKit === key ? '2px solid #f55247' : '1px solid #d1d5db',
+                  border: starterKit === key ? `2px solid ${colors.laravelRed}` : `1px solid ${colors.inputBorder}`,
                   borderRadius: '8px',
-                  backgroundColor: starterKit === key ? '#fff5f4' : '#fff',
+                  backgroundColor: starterKit === key ? selectedBg : colors.panelBg,
                   cursor: 'pointer',
                   textAlign: 'left' as const,
                   transition: 'all 0.2s',
@@ -388,7 +410,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                   style: {
                     fontSize: '14px',
                     fontWeight: 500,
-                    color: starterKit === key ? '#f55247' : '#333',
+                    color: starterKit === key ? colors.laravelRed : colors.textPrimary,
                     marginBottom: '4px',
                   },
                 },
@@ -399,7 +421,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 {
                   style: {
                     fontSize: '12px',
-                    color: '#666',
+                    color: colors.textSecondary,
                   },
                 },
                 config.description
@@ -422,7 +444,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 marginBottom: '12px',
                 fontSize: '14px',
                 fontWeight: 500,
-                color: '#333',
+                color: colors.textPrimary,
               },
             },
             'Breeze Stack'
@@ -444,9 +466,9 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                   onClick: () => this.handleBreezeStackChange(stack.value),
                   style: {
                     padding: '14px',
-                    border: breezeStack === stack.value ? '2px solid #f55247' : '1px solid #d1d5db',
+                    border: breezeStack === stack.value ? `2px solid ${colors.laravelRed}` : `1px solid ${colors.inputBorder}`,
                     borderRadius: '8px',
-                    backgroundColor: breezeStack === stack.value ? '#fff5f4' : '#fff',
+                    backgroundColor: breezeStack === stack.value ? selectedBg : colors.panelBg,
                     cursor: 'pointer',
                     textAlign: 'left' as const,
                     transition: 'all 0.2s',
@@ -458,7 +480,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                     style: {
                       fontSize: '14px',
                       fontWeight: 500,
-                      color: breezeStack === stack.value ? '#f55247' : '#333',
+                      color: breezeStack === stack.value ? colors.laravelRed : colors.textPrimary,
                       marginBottom: '2px',
                     },
                   },
@@ -469,7 +491,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                   {
                     style: {
                       fontSize: '11px',
-                      color: '#888',
+                      color: colors.textMuted,
                     },
                   },
                   stack.description
@@ -492,7 +514,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 marginBottom: '12px',
                 fontSize: '14px',
                 fontWeight: 500,
-                color: '#333',
+                color: colors.textPrimary,
               },
             },
             'Jetstream Stack'
@@ -515,9 +537,9 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                   style: {
                     flex: 1,
                     padding: '14px',
-                    border: jetstreamStack === stack.value ? '2px solid #f55247' : '1px solid #d1d5db',
+                    border: jetstreamStack === stack.value ? `2px solid ${colors.laravelRed}` : `1px solid ${colors.inputBorder}`,
                     borderRadius: '8px',
-                    backgroundColor: jetstreamStack === stack.value ? '#fff5f4' : '#fff',
+                    backgroundColor: jetstreamStack === stack.value ? selectedBg : colors.panelBg,
                     cursor: 'pointer',
                     textAlign: 'left' as const,
                     transition: 'all 0.2s',
@@ -529,7 +551,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                     style: {
                       fontSize: '14px',
                       fontWeight: 500,
-                      color: jetstreamStack === stack.value ? '#f55247' : '#333',
+                      color: jetstreamStack === stack.value ? colors.laravelRed : colors.textPrimary,
                       marginBottom: '2px',
                     },
                   },
@@ -540,7 +562,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                   {
                     style: {
                       fontSize: '11px',
-                      color: '#888',
+                      color: colors.textMuted,
                     },
                   },
                   stack.description
@@ -557,9 +579,9 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 flexDirection: 'column' as const,
                 gap: '12px',
                 padding: '16px',
-                backgroundColor: '#f9fafb',
+                backgroundColor: colors.panelBgSecondary,
                 borderRadius: '8px',
-                border: '1px solid #e5e7eb',
+                border: `1px solid ${colors.border}`,
               },
             },
             React.createElement(
@@ -571,7 +593,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                   gap: '10px',
                   cursor: 'pointer',
                   fontSize: '14px',
-                  color: '#333',
+                  color: colors.textPrimary,
                 },
               },
               React.createElement('input', {
@@ -582,7 +604,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 style: {
                   width: '16px',
                   height: '16px',
-                  accentColor: '#f55247',
+                  accentColor: colors.laravelRed,
                 },
               }),
               React.createElement(
@@ -591,7 +613,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 'Enable team management',
                 React.createElement(
                   'span',
-                  { style: { color: '#666', marginLeft: '6px', fontSize: '12px' } },
+                  { style: { color: colors.textSecondary, marginLeft: '6px', fontSize: '12px' } },
                   '(multi-user workspaces)'
                 )
               )
@@ -605,7 +627,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                   gap: '10px',
                   cursor: 'pointer',
                   fontSize: '14px',
-                  color: '#333',
+                  color: colors.textPrimary,
                 },
               },
               React.createElement('input', {
@@ -616,7 +638,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 style: {
                   width: '16px',
                   height: '16px',
-                  accentColor: '#f55247',
+                  accentColor: colors.laravelRed,
                 },
               }),
               React.createElement(
@@ -625,7 +647,7 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
                 'Enable API support',
                 React.createElement(
                   'span',
-                  { style: { color: '#666', marginLeft: '6px', fontSize: '12px' } },
+                  { style: { color: colors.textSecondary, marginLeft: '6px', fontSize: '12px' } },
                   '(Laravel Sanctum)'
                 )
               )
@@ -652,9 +674,9 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
               padding: '14px 24px',
               fontSize: '16px',
               fontWeight: 500,
-              color: '#666',
-              backgroundColor: '#f5f5f5',
-              border: '1px solid #d1d5db',
+              color: colors.textSecondary,
+              backgroundColor: colors.panelBgSecondary,
+              border: `1px solid ${colors.inputBorder}`,
               borderRadius: '6px',
               cursor: 'pointer',
               transition: 'background-color 0.2s',
@@ -672,17 +694,17 @@ export class LaravelConfigStep extends React.Component<WizardStepProps, State> {
               fontSize: '16px',
               fontWeight: 500,
               color: '#fff',
-              backgroundColor: '#f55247',
+              backgroundColor: colors.laravelRed,
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
               transition: 'background-color 0.2s',
             },
             onMouseOver: (e: React.MouseEvent<HTMLButtonElement>) => {
-              e.currentTarget.style.backgroundColor = '#e04438';
+              e.currentTarget.style.backgroundColor = colors.laravelRedHover;
             },
             onMouseOut: (e: React.MouseEvent<HTMLButtonElement>) => {
-              e.currentTarget.style.backgroundColor = '#f55247';
+              e.currentTarget.style.backgroundColor = colors.laravelRed;
             },
           },
           'Create Laravel Site'
