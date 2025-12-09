@@ -15,7 +15,6 @@ import {
   DEFAULT_LARAVEL_VERSION,
   STARTER_KITS,
   DEFAULT_STARTER_KIT,
-  JETSTREAM_STACKS,
 } from '../../../common/constants';
 import { getThemeColors, onThemeChange, type ThemeColors } from '../../../common/theme';
 

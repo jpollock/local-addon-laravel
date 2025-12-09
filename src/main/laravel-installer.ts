@@ -19,7 +19,7 @@ import * as LocalMain from '@getflywheel/local/main';
 
 import { composerManager } from './composer-manager';
 import { npmManager } from './npm-manager';
-import { LARAVEL_VERSIONS, STARTER_KITS, CREATION_STAGES } from '../common/constants';
+import { LARAVEL_VERSIONS, CREATION_STAGES } from '../common/constants';
 import type {
   LaravelVersion,
   StarterKit,
@@ -84,7 +84,7 @@ export class LaravelInstaller {
    * @param options - Installation options
    */
   async install(site: LocalSite, options: LaravelInstallOptions): Promise<LaravelInstallResult> {
-    const { laravelVersion, starterKit, breezeStack, onProgress } = options;
+    const { laravelVersion, starterKit, onProgress } = options;
 
     const sitePath = this.resolveSitePath(site.path);
     const appPath = path.join(sitePath, 'app');

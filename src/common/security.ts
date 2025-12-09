@@ -232,7 +232,7 @@ export function buildTerminalCommand(
         safe: true,
       };
 
-    case 'darwin':
+    case 'darwin': {
       // macOS: use AppleScript to control terminal apps
       // Escape path for AppleScript (handle single quotes)
       const escapedPath = projectPath.replace(/'/g, "'\\''");
@@ -265,6 +265,7 @@ export function buildTerminalCommand(
           safe: true,
         };
       }
+    }
 
     default: // linux
       // Linux: try gnome-terminal first
