@@ -1,5 +1,7 @@
 # Fix: Site Shell Button Not Respecting Local's Terminal Preference
 
+## Status: ✅ COMPLETED (December 9, 2024)
+
 ## Overview
 
 **Type:** 🐛 Bug Fix
@@ -41,12 +43,12 @@ Read Local's terminal preference and launch the correct application:
 
 ## Acceptance Criteria
 
-- [ ] Reads Local's `defaultTerminal` preference from `settings-default-apps.json`
-- [ ] Opens iTerm2 when preference is "iTerm"
-- [ ] Opens Terminal.app when preference is "Terminal" (or not set)
-- [ ] Opens terminal at the Laravel `/app` directory
-- [ ] Paths with spaces and special characters work correctly
-- [ ] Falls back gracefully if preferred terminal isn't installed
+- [x] Reads Local's `defaultTerminal` preference from `settings-default-apps.json`
+- [x] Opens iTerm2 when preference is "iTerm"
+- [x] Opens Terminal.app when preference is "Terminal" (or not set)
+- [x] Opens terminal at the Laravel `/app` directory
+- [x] Paths with spaces and special characters work correctly
+- [x] Falls back gracefully if preferred terminal isn't installed
 
 ## Implementation
 
