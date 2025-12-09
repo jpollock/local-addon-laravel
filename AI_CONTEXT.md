@@ -48,11 +48,56 @@ This document provides context for AI agents continuing work on this project. It
 | Security Hardening | ✅ Complete | Input validation, path traversal protection |
 
 ### Test Coverage
-- **122 tests passing**
-- Test files: `security.test.ts`, `validation.test.ts`, `constants.test.ts`, `composer-manager.test.ts`
-- Coverage for all security utilities and validation schemas
+- **152 tests passing**
+- Test files: `security.test.ts`, `validation.test.ts`, `constants.test.ts`, `composer-manager.test.ts`, `theme.test.ts`
+- Coverage for all security utilities, validation schemas, and theme utilities
 
 ### Recent Changes (This Session)
+
+**Feature: Dark Mode Support (December 9, 2024)**
+
+Added full dark mode support across all Laravel addon UI components. The addon now automatically matches Local's theme preference and updates reactively when the user toggles themes.
+
+**Changes Made:**
+
+1. **`src/common/theme.ts`** - New file
+   - `isDarkMode()` - Detects Local's theme via `.Theme__Dark` CSS class
+   - `getThemeColors()` - Returns appropriate color palette for current theme
+   - `onThemeChange()` - MutationObserver for reactive theme updates
+   - `LIGHT_COLORS` / `DARK_COLORS` - WCAG-compliant color constants
+
+2. **`tests/common/theme.test.ts`** - 25 new tests
+   - Theme detection, color palette validation, accessibility contrast checks
+
+3. **Updated Components with Theme Support:**
+   - `LaravelSitePanel.tsx` - Main site management panel
+   - `LaravelEntryStep.tsx` - Wizard step 1
+   - `LaravelConfigStep.tsx` - Wizard step 2
+   - `LaravelBuildingStep.tsx` - Wizard step 3
+   - `LaravelBadge.tsx` - Laravel "L" badge
+
+**Design Decisions:**
+- Log viewer and .env editor remain dark always (industry convention)
+- Laravel red brand color consistent across both themes
+- All components use MutationObserver for live theme switching
+
+---
+
+**Feature: Jetstream & Breeze API Support (December 9, 2024)**
+
+Added support for Laravel Jetstream starter kit and Breeze API-only mode.
+
+**Jetstream Features:**
+- Livewire and Inertia (Vue) stack options
+- Teams support toggle
+- API support toggle (Laravel Sanctum)
+- Version pinning: ^5.0 for Laravel 11, ^4.0 for Laravel 10
+
+**Breeze API Mode:**
+- New "API Only" stack option for headless backends
+- Skips npm build process for API-only installs
+
+---
 
 **Bug Fix: Site Shell Terminal Preference (December 9, 2024)**
 
@@ -106,6 +151,7 @@ The "Site shell" button was hardcoded to use Terminal.app on macOS, ignoring Loc
 | `src/common/constants.ts` | IPC channels, routes, config values |
 | `src/common/validation.ts` | Zod schemas for input validation |
 | `src/common/security.ts` | Path validation, command sanitization |
+| `src/common/theme.ts` | Theme detection and color management |
 | `src/common/types.ts` | TypeScript interfaces |
 | `src/renderer/index.tsx` | Renderer entry, hook registration |
 | `src/renderer/components/wizard/` | Site creation wizard steps |
@@ -232,6 +278,7 @@ localLogger.error('[LocalLaravel] Error:', error);
 3. **No Tinker terminal** - Would be nice to have interactive REPL
 
 ### Resolved
+- ✅ Dark mode support (Dec 9, 2024) - All UI components match Local's theme
 - ✅ Jetstream support added (Dec 9, 2024) - Livewire/Inertia stacks with Teams/API options
 - ✅ Breeze API mode added (Dec 9, 2024) - Headless authentication option
 - ✅ Terminal preference not respected (fixed Dec 9, 2024)
@@ -287,9 +334,10 @@ src/
 tests/
 ├── common/
 │   ├── security.test.ts     # 40 tests
-│   └── validation.test.ts   # 58 tests
+│   ├── validation.test.ts   # 62 tests
+│   └── theme.test.ts        # 25 tests
 ├── main/
-│   ├── constants.test.ts    # 17 tests
+│   ├── constants.test.ts    # 18 tests
 │   └── composer-manager.test.ts # 7 tests
 └── setup.ts                  # Jest setup with mocks
 ```
